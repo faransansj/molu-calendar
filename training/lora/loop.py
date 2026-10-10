@@ -53,7 +53,6 @@ def run_stage(key, command, root, state, deadline, stage_seconds=900):
 
 
 def candidate_config(base, index):
-    # Two declared experiments, not an unbounded auto-tuner or synthetic-data generator.
     return {**base, 'learning_rate': base['learning_rate'] / (2**index)}
 
 
@@ -91,7 +90,7 @@ def summarize(root, state):
 def execute(args):
     root = args.out.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    scripts = ('run.py', 'report.py', 'loop.py', 'prepare.py', 'export_cards.mjs', 'test_stack.py')
+    scripts = ('run.py', 'report.py', 'loop.py', 'prepare.py', 'export_cards.ts', 'test_stack.py')
     # Use the full-repo assembler when available; portable packs use their frozen data.
     source = HERE.parents[1] / 'public/resource/persona/characters.json'
     regenerate = source.exists() and shutil.which('node') is not None

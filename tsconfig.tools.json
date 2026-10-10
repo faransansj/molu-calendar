@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["tools/*.ts", "*.config.ts", "training/lora/*.ts"],
+  "exclude": [],
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM"],
+    "types": ["node"]
+  }
+}

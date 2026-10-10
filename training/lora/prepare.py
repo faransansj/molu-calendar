@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[1] / 'tools'))
+sys.path.insert(0, str(HERE.parents[1] / 'tools' / 'vendor'))
 from select_examples import BROKEN, clean
 
 PILOTS = {'Yuuka': (13010, '유우카'), 'CH0069': (10122, '미카'), 'Aris': (10015, '아리스')}
@@ -80,7 +80,6 @@ def extract(key, rows, branch_cap=64):
             if cursor not in groups:
                 raise ValueError(f'{key}: missing group {cursor}')
             if cursor != root and cursor in roots:
-                # 다음 에피소드 경계: 이 경로는 여기서 끝난다.
                 emit(root, key, samples, rejected, seen, history, row_ids, segment, choices)
                 continue
             visited = visited | {cursor}
@@ -164,7 +163,6 @@ def split_episodes(samples, seed=42):
         groups[sample['episode']].append(sample)
     if len(groups) < 3:
         raise ValueError('Need at least three usable episodes for a pilot split')
-    # Pick ONE whole episode reproducibly, including its post-story messages.
     held = min(groups, key=lambda key: hashlib.sha256(f'{seed}:{key}'.encode()).hexdigest())
     evaluation = groups[held]
     targets = {s['messages'][-1]['content'] for s in evaluation}
@@ -214,7 +212,7 @@ def main():
     if args.source_table:
         dump(source_path, snapshot(args.source_table, args.profile_table))
     source = json.loads(source_path.read_text(encoding='utf-8'))
-    cards = json.loads(subprocess.check_output(['node', str(HERE / 'export_cards.mjs'), *PILOTS], text=True))
+    cards = json.loads(subprocess.check_output(['node', str(HERE / 'export_cards.ts'), *PILOTS], text=True))
     manifest = prepare(source, args.output, cards)
     for key, info in manifest['characters'].items():
         print(f'{key}: train={info["train"]}, eval={info["eval"]}, rejected={len(info["rejected"])}')

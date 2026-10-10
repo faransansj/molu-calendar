@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useCalendar } from "../hooks.ts";
+import { useCalendar } from "../hooks/calendar.ts";
 import {
   CATEGORIES,
   DAY_MS,
@@ -9,9 +9,9 @@ import {
   overlaps,
   phase,
   remainingLabel,
-} from "../lib/calendar.ts";
+} from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
-import type { FeedEvent } from "../lib/feed.ts";
+import type { FeedEvent } from "../lib/calendar/feed.ts";
 import { BannerGallery } from "./BannerGallery.tsx";
 import { Icon } from "./Icon.tsx";
 import { SectionTitle, categoryStyle } from "./ui.tsx";

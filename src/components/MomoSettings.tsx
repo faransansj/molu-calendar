@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { ChatTranscript } from "../../chat-transcript.js";
-import { momoSupportsAI } from "../../momotalk.js";
+import type { ChatTranscript } from "../lib/chat/transcript.ts";
+import { momoSupportsAI } from "../lib/chat/prompt.ts";
 import { MODEL, useLocalAI } from "../hooks/useLocalAI.ts";
 import { cx } from "../lib/cx.ts";
-import type { Student } from "../lib/momotalk.ts";
+import type { Student } from "../lib/chat/replies.ts";
 import { sitePath } from "../lib/urls.ts";
 import { Icon } from "./Icon.tsx";
 import {

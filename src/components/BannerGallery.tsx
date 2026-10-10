@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FeedEvent } from "../lib/feed.ts";
+import type { FeedEvent } from "../lib/calendar/feed.ts";
 import { Icon } from "./Icon.tsx";
 import { iconButton } from "./ui.tsx";
 

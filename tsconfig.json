@@ -1,7 +1,14 @@
 {
   "extends": "astro/tsconfigs/strict",
-  "include": [".astro/types.d.ts", "src/**/*", "scraper/**/*", "*.d.ts"],
-  "exclude": ["dist", "reference", "public", "training", "tools"],
+  "include": [".astro/types.d.ts", "src/**/*", "scraper/**/*"],
+  "exclude": [
+    "dist",
+    "reference",
+    "public",
+    "training",
+    "tools",
+    "src/workers"
+  ],
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "react",

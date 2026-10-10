@@ -154,12 +154,10 @@ export function parseRange(
   }
   const start = endpoint(left, reference);
   if (!start) {
-    // A leading "~" gives only a deadline.
     if (!left.trim() && right) {
       const end = endpoint(right.split(/\s\/\s|[~～∼〜]/)[0]!, reference);
       return end ? { start: end, endOnly: true } : null;
     }
-    // Without a maintenance date, keep the concrete ending as a deadline.
     if (right && findTime(left)?.afterMaintenance) {
       const end = endpoint(right.split(/\s\/\s|[~～∼〜]/)[0]!, reference);
       return end ? { start: end, endOnly: true } : null;

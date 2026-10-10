@@ -1,8 +1,8 @@
 import type { APIRoute, GetStaticPaths } from "astro";
-import { CATEGORIES } from "../../lib/calendar.ts";
-import { feed } from "../../lib/data.ts";
-import type { Category, FeedEvent } from "../../lib/feed.ts";
-import { toICS } from "../../lib/ics.ts";
+import { CATEGORIES } from "../../lib/calendar/calendar.ts";
+import { feed } from "../../lib/calendar/data.ts";
+import type { Category, FeedEvent } from "../../lib/calendar/feed.ts";
+import { toICS } from "../../lib/calendar/ics.ts";
 import { sitePath } from "../../lib/urls.ts";
 
 export const getStaticPaths = (() => [

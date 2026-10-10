@@ -13,8 +13,7 @@ export default [
       "node_modules/",
       "public/",
       "reference/",
-      "tools/upstream-browser/",
-      "training/",
+      "training/lora/runs/",
       "**/.*/",
     ],
   },
@@ -48,13 +47,6 @@ export default [
       ...reactHooks.configs.recommended.rules,
       ...jsxA11y.configs.recommended.rules,
       "jsx-a11y/label-has-associated-control": ["error", { depth: 3 }],
-    },
-  },
-  {
-    files: ["*.test.js"],
-    rules: {
-      "@typescript-eslint/no-unused-vars": "off",
-      "no-misleading-character-class": "off",
     },
   },
 ];

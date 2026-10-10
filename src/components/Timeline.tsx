@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
-import { useCalendar, usePersistentState } from "../hooks.ts";
+import { useCalendar, usePersistentState } from "../hooks/calendar.ts";
 import {
   CATEGORIES,
   STATUSES,
@@ -14,12 +14,12 @@ import {
   span,
   startTag,
   weekday,
-} from "../lib/calendar.ts";
+} from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
-import type { Category } from "../lib/feed.ts";
-import { CATEGORY_KEYS } from "../lib/feed.ts";
-import { layoutTimeline } from "../lib/timeline.ts";
-import type { TimelineItem } from "../lib/timeline.ts";
+import type { Category } from "../lib/calendar/feed.ts";
+import { CATEGORY_KEYS } from "../lib/calendar/feed.ts";
+import { layoutTimeline } from "../lib/calendar/timeline.ts";
+import type { TimelineItem } from "../lib/calendar/timeline.ts";
 import { Empty } from "./Agenda.tsx";
 import { Icon } from "./Icon.tsx";
 import { Count, Countdown, Diamond, categoryStyle } from "./ui.tsx";

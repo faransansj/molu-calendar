@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  MODELS,
-  inspectEnvironment,
-  inspectModelCaches,
-} from "../../local-ai.js";
-import { localAISession } from "../../local-ai-session.js";
+import { inspectEnvironment, inspectModelCaches } from "../lib/ai/client.ts";
+import { MODELS } from "../lib/ai/models.ts";
+import { localAISession } from "../lib/ai/session.ts";
 
 export const MODEL = MODELS[0]!;
 
@@ -48,7 +45,6 @@ export function useLocalAI() {
     [],
   );
 
-  /** Downloads on first use, then moves the cached model onto the GPU. */
   const prepare = useCallback(async () => {
     progress = 0;
     localAISession.notify();
@@ -56,7 +52,9 @@ export function useLocalAI() {
       const environment = await inspectEnvironment();
       if (!environment.engines.litert?.supported)
         throw new Error(
-          environment.engines.litert?.reason ?? environment.reason,
+          environment.engines.litert?.reason ??
+            environment.reason ??
+            "WebGPU 실행 환경을 확인해 주세요.",
         );
       await localAISession.run("settings", (client) =>
         client.request(

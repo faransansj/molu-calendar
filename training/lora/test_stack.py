@@ -85,7 +85,6 @@ class StackTest(unittest.TestCase):
             self.assertEqual(padded['labels'][0].tolist(), [-100, 4, 2, -100])
             trainer.train()
             self.assertTrue(any(torch.count_nonzero(p).item() for name, p in model.named_parameters() if 'lora_B' in name))
-            # Frozen base tensors must not be updated.
             for name, value in model.get_base_model().state_dict().items():
                 if 'lora_' not in name:
                     torch.testing.assert_close(value, initial[name.replace('.base_layer', '')], rtol=0, atol=0)

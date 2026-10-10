@@ -1,4 +1,4 @@
-import type { Kind } from "../src/lib/feed.ts";
+import type { Kind } from "../src/lib/calendar/feed.ts";
 
 export function shouldExcludeCalendarEvent(item: {
   kind: Kind;

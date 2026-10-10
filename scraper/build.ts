@@ -4,8 +4,13 @@ import {
   compareEvents,
   endMoment,
   openEndedExpired,
-} from "../src/lib/calendar.ts";
-import type { Feed, FeedEvent, Period, Source } from "../src/lib/feed.ts";
+} from "../src/lib/calendar/calendar.ts";
+import type {
+  Feed,
+  FeedEvent,
+  Period,
+  Source,
+} from "../src/lib/calendar/feed.ts";
 import { BOARDS } from "./parse.ts";
 import type { Draft, Post } from "./parse.ts";
 import { validateFeed } from "./schema.ts";
@@ -40,7 +45,6 @@ const unique = <T>(items: T[], key: (item: T) => string = String) => [
   ...new Map(items.map((item) => [key(item), item])).values(),
 ];
 
-/** Prefer dedicated notice banners over the weekly summary. */
 function priority(draft: Draft): number {
   if (draft.category === "pickup" && draft.post.board === 1018) return 0;
   if (draft.post.board === 1076) return 1;

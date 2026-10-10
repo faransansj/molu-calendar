@@ -3,9 +3,9 @@
 
 목적은 프롬프트 구조의 검증이다. 앱의 실제 모델(Gemma 4 LiteRT)이 아니라 로컬 Qwen3-1.7B를 쓰므로
 이 결과를 앱 품질 보장으로 주장하지 않는다. 앱과 같은 조립 코드는
-training/lora/build_memory_probes.mjs가 만든 prompts.jsonl에 들어 있다.
+training/lora/build_memory_probes.ts가 만든 prompts.jsonl에 들어 있다.
 
-    node training/lora/build_memory_probes.mjs training/lora/runs/memory-probe/prompts.jsonl
+    node training/lora/build_memory_probes.ts training/lora/runs/memory-probe/prompts.jsonl
     cd training/lora && uv run --locked python memory_probe.py
 """
 import argparse

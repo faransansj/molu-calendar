@@ -1,10 +1,10 @@
 import { sitePath } from "../lib/urls.ts";
 import { useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
-import { CATEGORIES } from "../lib/calendar.ts";
+import { CATEGORIES } from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
-import type { Category, FeedEvent } from "../lib/feed.ts";
-import { downloadICS } from "../lib/ics.ts";
+import type { Category, FeedEvent } from "../lib/calendar/feed.ts";
+import { downloadICS } from "../lib/calendar/ics.ts";
 import { Icon } from "./Icon.tsx";
 import {
   Count,

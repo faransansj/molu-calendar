@@ -146,7 +146,7 @@ uv run --locked --extra qlora python run.py compare --run runs/qlora-smoke-Yuuka
 
 ### 공유 세계관과 카드
 
-**원본은 여전히 `resource/persona/characters.json` 한 곳**이다. `export_cards.mjs`가 앱의 `systemPromptFor()`를 그대로 호출해 공유 world/rules/factions + 해당 캐릭터 역할/관계를 조립한다. 학습 코드에 세계관을 다시 작성하지 않는다.
+**원본은 여전히 `resource/persona/characters.json` 한 곳**이다. `export_cards.ts`가 앱의 `systemPromptFor()`를 그대로 호출해 공유 world/rules/factions + 해당 캐릭터 역할/관계를 조립한다. 학습 코드에 세계관을 다시 작성하지 않는다.
 
 `data/cards.json`은 GPU PC로 옮길 때 쓰는 **생성된 고정 스냅샷**이다. JSONL에는 system 텍스트를 매 행 복사하지 않고 `character`로 참조한다. 학습 직전에 해당 카드를 붙인다. 학습/비교에는 앱의 few-shot 예시를 넣지 않는다. held-out 대사가 few-shot으로 유출될 수 있기 때문이다.
 
@@ -207,11 +207,11 @@ tar --exclude='checkpoints' -czf /tmp/character-adapters.tar.gz \
 
 ## 5.5 프롬프트 수준 기억 검증 (모델 학습과 별개)
 
-앱의 기억 기능이 실제 프롬프트에서 동작하는지 **로컬 Qwen3**로 확인하는 프로브가 있다. 앱과 같은 조립 코드(`persona.js`·`chat-memory.js`·`momotalk.js`)를 Node로 실행해 프롬프트를 만들고, 이 프로젝트의 환경에서 추론한다.
+앱의 기억 기능이 실제 프롬프트에서 동작하는지 **로컬 Qwen3**로 확인하는 프로브가 있다. 앱과 같은 조립 코드(`src/lib/ai/persona.ts`·`src/lib/chat/memory.ts`·`src/lib/chat/prompt.ts`)를 Node로 실행해 프롬프트를 만들고, 이 프로젝트의 환경에서 추론한다.
 
 ```sh
 cd training/lora
-node build_memory_probes.mjs runs/memory-probe/prompts.jsonl   # 6사실 × 5변형 = 30건
+node build_memory_probes.ts runs/memory-probe/prompts.jsonl   # 6사실 × 5변형 = 30건
 uv run --locked python memory_probe.py                          # Qwen/Qwen3-1.7B, MPS/CUDA
 # 선택: --adapter runs/<실험>/<캐릭터>/adapter --device cuda --limit 10
 ```
@@ -224,7 +224,7 @@ uv run --locked python memory_probe.py                          # Qwen/Qwen3-1.7
 측정으로 확인한 것(로컬 Qwen3-1.7B, 3표본 평균):
 
 - 프롬프트에 `[말투]`(register 파생 문장)나 `[분량]`(캐릭터별 문장 수) 블록을 **추가해도 지표가 나아지지 않았다**(각 168표본·60표본 A/B). 그래서 앱 프롬프트에는 넣지 않았고, 파생값은 프로브 판정 기준으로만 쓴다.
-- 예시 자체가 규칙보다 강하게 작동한다: 앱 규칙은 2~4문장인데 예시 115개 중 24개가 5문장 이상이었고, 모델도 그 리듬을 따라 길게 말했다. `tools/select_examples.py`에 종결 부호 기준 문장 수 점수(2~4 보너스, 5+ 감점)를 넣어 예시를 규칙 쪽으로 맞췄다(24 → 16개).
+- 예시 자체가 규칙보다 강하게 작동한다: 앱 규칙은 2~4문장인데 예시 115개 중 24개가 5문장 이상이었고, 모델도 그 리듬을 따라 길게 말했다. `tools/vendor/select_examples.py`에 종결 부호 기준 문장 수 점수(2~4 보너스, 5+ 감점)를 넣어 예시를 규칙 쪽으로 맞췄다(24 → 16개).
 
 ## 5.6 말투 프로브 (고정 평가셋, 모델 학습과 별개)
 
@@ -232,7 +232,7 @@ uv run --locked python memory_probe.py                          # Qwen/Qwen3-1.7
 
 ```sh
 cd training/lora
-node build_style_probes.mjs runs/voice-probe/prompts.jsonl
+node build_style_probes.ts runs/voice-probe/prompts.jsonl
 uv run --locked python voice_probe.py                      # 생성 + 채점
 uv run --locked python voice_probe.py --rejudge            # 모델 없이 저장된 답변 재채점(지표 수정용)
 uv run --locked python voice_probe.py --adapter <path> --filter Yuuka   # 어댑터 비교
@@ -250,18 +250,18 @@ uv run --locked python voice_probe.py --adapter <path> --filter Yuuka   # 어댑
 | `echo` | 사용자 메시지를 거의 그대로 되받는지 |
 | `invented` | 카드에 없는 약속/기억을 단정하는지(일정·기억 질문) |
 
-맥락 창 프로브(최근 왕복 수 결정용): `node build_context_probes.mjs runs/context-probe/prompts.jsonl` + `uv run --locked python memory_probe.py --prompts runs/context-probe/prompts.jsonl --samples 3`. 사실을 3왕복 전에 말한 뒤 회상 질문을 던져 창 크기(2 vs 4왕복)와 기억 주입을 비교한다(결과: [RESULTS.md](RESULTS.md)).
+맥락 창 프로브(최근 왕복 수 결정용): `node build_context_probes.ts runs/context-probe/prompts.jsonl` + `uv run --locked python memory_probe.py --prompts runs/context-probe/prompts.jsonl --samples 3`. 사실을 3왕복 전에 말한 뒤 회상 질문을 던져 창 크기(2 vs 4왕복)와 기억 주입을 비교한다(결과: [RESULTS.md](RESULTS.md)).
 
 **앱 모델(Gemma 4 LiteRT)이 아니라 프롬프트 구조 검증이다.** 앱 품질 보장으로 확대 해석하지 않는다.
 
 측정으로 확인한 것(로컬 Qwen3-1.7B, 3표본 평균):
 
 - 프롬프트에 `[말투]`(register 파생 문장)나 `[분량]`(캐릭터별 문장 수) 블록을 **추가해도 지표가 나아지지 않았다**(각 168표본·60표본 A/B). 그래서 앱 프롬프트에는 넣지 않았고, 파생값은 프로브 판정 기준으로만 쓴다.
-- 예시 자체가 규칙보다 강하게 작동한다: 앱 규칙은 2~4문장인데 예시 115개 중 24개가 5문장 이상이었고, 모델도 그 리듬을 따라 길게 말했다. `tools/select_examples.py`에 종결 부호 기준 문장 수 점수(2~4 보너스, 5+ 감점)를 넣어 예시를 규칙 쪽으로 맞췄다(24 → 16개).
+- 예시 자체가 규칙보다 강하게 작동한다: 앱 규칙은 2~4문장인데 예시 115개 중 24개가 5문장 이상이었고, 모델도 그 리듬을 따라 길게 말했다. `tools/vendor/select_examples.py`에 종결 부호 기준 문장 수 점수(2~4 보너스, 5+ 감점)를 넣어 예시를 규칙 쪽으로 맞췄다(24 → 16개).
 
 ## 6. 앱 연결 범위
 
-현재 앱의 기본 LiteRT-LM/Gemma 및 WebLLM에는 이 PEFT 어댑터를 직접 로드하는 기능을 추가하지 않았다. **Qwen용 LoRA는 Gemma에 적용할 수 없으며**, Qwen WebLLM 양자화 모델과도 파일 형식이 같지 않다.
+현재 앱의 LiteRT-LM/Gemma에는 이 PEFT 어댑터를 직접 로드하는 기능을 추가하지 않았다. **Qwen용 LoRA는 Gemma에 적용할 수 없으며**, Qwen WebLLM 양자화 모델과도 파일 형식이 같지 않다.
 
 설치된 런타임의 API도 확인했다(2026-10, `@litert-lm/core` 0.17.1). `dist/engine_settings.d.ts`·`dist/wasm_binding_types.d.ts`에서 LoRA 관련 표면은 **`GpuArtisanConfig.supported_lora_ranks: number[]`(런타임이 지원하는 rank 목록)뿐**이고, 어댑터 파일을 지정해 붙이는 파라미터(`EngineSettings`, `LlmExecutorSettings`)는 공개 타입에 없다. 레거시 MediaPipe LLM Inference처럼 모델 자산에 LoRA를 함께 묶는 방식도 이 패키지에는 없다. 따라서 현재 고정한 브라우저 런타임에서 PEFT 어댑터를 붙일 경로는 확인되지 않았고, 가정하지 않는다.
 

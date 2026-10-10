@@ -1,8 +1,8 @@
 import { useState } from "react";
-import type { ChatTranscript, Memory } from "../../chat-transcript.js";
-import { filterMemories } from "../../chat-memory.js";
+import type { ChatTranscript, Memory } from "../lib/chat/transcript.ts";
+import { filterMemories } from "../lib/chat/memory.ts";
 import { cx } from "../lib/cx.ts";
-import type { Student } from "../lib/momotalk.ts";
+import type { Student } from "../lib/chat/replies.ts";
 import { Icon } from "./Icon.tsx";
 import {
   Notice,

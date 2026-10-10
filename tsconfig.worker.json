@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/workers/**/*.ts"],
+  "exclude": [],
+  "compilerOptions": {
+    "lib": ["ESNext", "WebWorker"],
+    "types": ["node", "astro/client"]
+  }
+}

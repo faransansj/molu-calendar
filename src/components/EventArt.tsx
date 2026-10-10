@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { CATEGORIES } from "../lib/calendar.ts";
+import { CATEGORIES } from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
-import type { FeedEvent } from "../lib/feed.ts";
+import type { FeedEvent } from "../lib/calendar/feed.ts";
 import { categoryStyle } from "./ui.tsx";
 
 export function EventArt({

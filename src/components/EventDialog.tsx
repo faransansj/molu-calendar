@@ -6,10 +6,10 @@ import {
   dayLabel,
   periodRange,
   span,
-} from "../lib/calendar.ts";
+} from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
-import type { FeedEvent } from "../lib/feed.ts";
-import { downloadICS } from "../lib/ics.ts";
+import type { FeedEvent } from "../lib/calendar/feed.ts";
+import { downloadICS } from "../lib/calendar/ics.ts";
 import { EventArt } from "./EventArt.tsx";
 import { Icon } from "./Icon.tsx";
 import {

@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { parseArgs } from "node:util";
-import type { Feed, FeedEvent } from "../src/lib/feed.ts";
+import type { Feed, FeedEvent } from "../src/lib/calendar/feed.ts";
 import { buildFeed, eventsFromDrafts, mergeArchive } from "./build.ts";
 import { createClient, toPost } from "./nexon.ts";
 import type { Thread } from "./nexon.ts";

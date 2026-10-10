@@ -7,7 +7,7 @@ import json
 import time
 from pathlib import Path
 
-# 앱이 Worker에 넘기는 샘플링 설정과 맞춘다(local-ai-worker.js).
+# 앱이 Worker에 넘기는 샘플링 설정과 맞춘다(src/workers/local-ai.worker.ts).
 SEED = 42
 TEMPERATURE = 0.6
 TOP_P = 0.9

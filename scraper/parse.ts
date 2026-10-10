@@ -1,5 +1,5 @@
-import { addDays } from "../src/lib/calendar.ts";
-import type { Category, Kind, Period } from "../src/lib/feed.ts";
+import { addDays } from "../src/lib/calendar/calendar.ts";
+import type { Category, Kind, Period } from "../src/lib/calendar/feed.ts";
 import { parseRange, toValue } from "./dates.ts";
 import type { ParsedRange } from "./dates.ts";
 import type { Block } from "./html.ts";

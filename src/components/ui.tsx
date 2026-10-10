@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { CATEGORIES, STATUSES, remainingLabel } from "../lib/calendar.ts";
+import {
+  CATEGORIES,
+  STATUSES,
+  remainingLabel,
+} from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
-import type { FeedEvent } from "../lib/feed.ts";
+import type { FeedEvent } from "../lib/calendar/feed.ts";
 import { Icon } from "./Icon.tsx";
 import type { IconName } from "./Icon.tsx";
 
@@ -223,7 +227,6 @@ export function Switch({
   );
 }
 
-/** Destructive actions ask once more in place instead of a native confirm. */
 export function ConfirmButton({
   children,
   confirm,

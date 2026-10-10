@@ -1,56 +1,59 @@
-# 메모리 P0 구현 계약
+# Chat storage and memory contract
 
-상태: P0 계약 고정. P0~P4 구현 완료(저장소 → 앱 전환 → 명시적 기억 → 모델 입력). 이 문서는 그 계약의 원본이며, 변경된 부분은 각 절에 표시했다. 진행 결과는 [chat-memory-progress.md](chat-memory-progress.md).
+## Storage
 
-## 고정한 동작
+IndexedDB is authoritative. The `molu-chat-memory` database uses schema version 2
+with `rooms`, `messages` and `memories`. There is no localStorage transcript
+migration or schema-v1 compatibility path.
 
-- 기본 범위: 단일 로컬 사용자, 선생님과 선택 캐릭터의 1:1 방. 학교/동아리 관계로 개인 대화를 공유하지 않는다.
-- 개별 2,000자·현재 질문 규칙은 유지한다. 최근 왕복 창은 P4에서 **2 → 4턴**으로 늘렸다(맥락 창 프로브: 3왕복 전 사실을 2왕복 창은 회상 0/9, 4왕복 창은 6/9). 총량 제한은 6,000자(대화만) → **4,000자(카드·예시·참고 자료·대화 전체)** 로 바뀌었다(아래 '모델 입력' 절).
-- 최초 인사는 방이 실제로 비어 있고 DB 초기화가 끝난 뒤 한 번만 추가한다.
-- 사용자 입력은 생성 전에 저장한다. 스트리밍 중 부분 출력은 완료 답변이 아니다. 취소/실패/재시도는 같은 사용자 메시지 ID에 연결한다.
-- `pendingTopic`의 기존 선생님 메시지 수 기준 진행도는 이관 시 방 메타데이터로 보존한다. 페이지 조회 개수로 계산하지 않는다.
-- 안 읽음·즐겨찾기·작은 AI 설정은 당장 이관하지 않는다.
+- Messages have stable IDs, per-room sequence numbers, speaker/source attribution,
+  original text, epoch-millisecond timestamps and an optional reply target.
+- Sources are `user-input`, `model-output`, `script` or `app`. A model statement
+  does not establish a user fact.
+- Seed the initial greeting only after the database is ready and the room is empty.
+  Script progress uses the persisted room's user-message count, not loaded pages.
+- Persist user questions before generation and completed replies only. Partial
+  streaming output is temporary. Cancellation, failure and retry retain the same
+  question ID. Reject stale replies after deletion or replacement.
+- IndexedDB transaction completion is the write boundary. Request success is
+  provisional. Surface storage failures, block sending and expose explicit retry.
+- Close connections on version changes and surface blocked opens. Do not silently
+  fall back to another storage mechanism.
+- Room/whole-transcript deletion also removes associated memories. Current-format
+  version-2 backups validate fields, identifiers, order and references before an
+  atomic replacement. Unsupported formats are rejected.
+- A browser Web Lock serializes sends per room. BroadcastChannel notifications
+  refresh other tabs. Replies atomically check their target question ID.
 
-## 자료·출처 계약
+## Explicit memory
 
-- `messages`: 안정적인 ID, 방별 `seq`, 실제 화자, 원문, 출처, 상태, 답변 대상 ID.
-- 신규 시간은 epoch 밀리초. 레거시 `HH:mm`은 `legacyTimeLabel`, 실제 날짜는 `createdAt: null`. 이관 시각을 과거 발송일로 만들지 않는다.
-- 레거시 `me`는 발화자 구분에 사용하지만 생성 출처를 입증하지 않는다. 전체 출처는 `legacy-unknown`, 원래 레코드는 `legacyData`로 보존한다.
-- 유효한 원문은 정규화하면서 공백·문장·순서를 바꾸지 않는다. 미지원/손상 레코드는 원본 snapshot을 보존하고 사유/위치를 보고한다.
-- 모델 발화는 모델이 한 말일 뿐 사용자 사실이 아니다. 장기 기억은 사용자 작성/확인으로만 등록한다.
-- 과거 일정 진술과 현재 앱 일정/실행 결과는 구별한다. 원문 삭제 시 출처를 참조하는 파생 기억도 무효화한다(방 삭제·전체 삭제가 그 방의 기억을 함께 지운다).
-- `memories`: 방 비공개 기억. 사용자가 직접 작성하거나 메시지에서 만든 문장만 저장하고, 모델 답변을 자동으로 사실 승격하지 않는다. `enabled=false`·`expiresAt` 경과 항목은 검색 후보에서 제외한다.
+Memories are private to a room. Only an explicit user action saves or edits a
+memory. Model output never becomes a saved memory automatically. Disabled or
+expired memories are excluded from model input. Keep source message IDs and
+source text when saving from a transcript.
 
-## 저장/이관 계약
+## Model input
 
-- DB: `molu-chat-memory`, schema v2: `meta`, `rooms`, `messages`, `memories`(v1은 열 때 `memories`만 추가 생성).
-- localStorage와 IndexedDB의 이중 쓰기는 하지 않는다. P1은 앱 저장 경로에 연결하지 않고, 원본 읽기 결과를 인자로 받는다.
-- 이관 데이터·전체 레거시 snapshot·완료 마커는 동일 트랜잭션으로 기록한다. 완료는 transaction complete 뒤에만 보고한다.
-- 같은 snapshot 재실행은 중복 없이 같은 보고서를 반환한다. 다른 snapshot은 자동 병합하지 않고 충돌로 거부한다.
-- 기존 DB에 기록이 있는데 이관 마커가 없으면 자동으로 덮어쓰거나 합치지 않는다.
-- 원본 localStorage는 P1에서 수정/삭제하지 않는다. 앱 전환 시 다른 탭에서 변경된 snapshot을 발견하면 송신 중지·충돌 안내한다.
-- 버전 변경 알림은 기존 연결을 닫는다. blocked 업그레이드는 사용자에게 알려야 하며, 연결이 닫힌 저장소는 다시 열기 전 사용하지 않는다.
-- 저장 실패를 성공으로 보고하거나 조용히 다른 저장소로 우회하지 않는다. 전체/방 삭제와 늦은 응답의 revision 검증은 P2에서 연결한다.
-- P1의 저장 API는 자료 저장 기능이며, 외부 파일 가져오기·Worker 신뢰 경계·공유 ACL은 이후 단계에서 별도 검증한다.
+The classic Worker uses the pinned LiteRT-LM 0.17.1 runtime and Gemma 4 E2B
+artifact. LiteRT's `maxNumTokens` is 4,096. Retain `importScripts`, pinned assets
+and restricted CSP download hosts.
 
-## 모델 입력의 현재 한계 (P4에서 갱신)
+- Conversation messages use user/assistant roles only, with at most four completed
+  exchanges plus the current question. Each message is limited to 2,000 characters.
+- Assemble persona/card examples, references, recent completed exchanges and the
+  current question within the 4,000-character prompt budget. Remove older exchanges
+  and references as whole items; do not truncate the current question or persona.
+- Select up to five room-scoped memories within 1,200 characters and two transcript
+  excerpts within 800 characters. References use at most half the remaining prompt
+  budget. Treat them as quoted data, not instructions.
+- Validate the Worker request and reference DTOs. Only built-in personas and
+  dataset examples can become system messages.
+- The character budget is a heuristic, not an exact tokenizer count. Model quality
+  and GPU compatibility require actual browser inference. Python/Qwen probes and
+  mock engines do not establish operation of the app's Gemma/LiteRT backend.
 
-Worker는 WebLLM에 `context_window_size: 4096`, LiteRT에 `maxNumTokens: 4096`을 설정한다. 개수/문자 검사는 system·예시를 붙이기 **전** 검사이므로 그것만으로 전체 프롬프트 토큰 예산을 입증하지 못한다.
+## Verification
 
-설치된 공개 타입에서 두 엔진에 공통으로 사용 가능한 채팅 템플릿 포함 토큰 계산 API는 확인되지 않았다. 그래서 **문자 예산**을 쓴다(`momotalk.js:PROMPT_CHAR_BUDGET = 4,000자`).
-
-- 근거: 앱 형태 프롬프트 실측(Qwen3 토크나이저, `training/lora/runs/memory-probe/`)에서 1.18~1.31자/토큰이었다. 가장 나쁜 1.18자/토큰과 메시지 템플릿 오버헤드를 가정하면 4,000자 ≈ 3,550토큰으로 4,096 문맥 − 출력 256 − 여유 안에 들어간다.
-- 이 값은 **토큰 수가 아니라 문자 수**이며, 다른 토크나이저(Gemma 등)에서는 실제 토큰 비율이 다를 수 있다. 문자 수를 토큰 수로 표시하지 않는다.
-- 조립: 카드+예시(고정) → 참고 자료(기억 ≤5·≤1,200자, 발췌 ≤2·≤800자, 남은 예산의 절반까지) → 완결된 최근 왕복(최대 2턴, 통째로만) → 현재 질문. 초과 시 오래된 왕복과 참고 자료를 **항목 단위로** 제거하고 현재 질문·역할 정의는 자르지 않는다.
-- 참고 자료는 클라이언트가 보내는 개수·길이·형식 제한 DTO이며, Worker가 `[참고 자료]` system 블록으로 조립한다. 임의 system 메시지·예시 주입 경로는 여전히 없다.
-- 기억·발췌는 인용된 참고 자료이고 운영 지시가 아니다. 선택 과정은 개발자 도구 '모모톡 프롬프트'에서 개수·문자 수·본문 요약으로 확인한다(전체 대화를 로그로 남기지 않는다).
-
-실제 모델이 문맥을 얼마나 쓰는지는 프롬프트 구조만으로 보장되지 않는다. 프롬프트 수준 확인은 `training/lora/memory_probe.py`(로컬 Qwen3)로 하고, 앱 모델(Gemma 4 LiteRT) 검증은 별도다.
-
-## 기준 및 검증
-
-- 착수 전 `npm test`: **77 passed / 0 failed** (현재 빌드 포함).
-- `chat-memory-contract.test.js`: 현재 완료 대화 선별·pending 제외·최근 턴/길이 한도 회귀 검사.
-- P1 테스트는 실제 IndexedDB 의미론에 가까운 테스트용 `fake-indexeddb`와 실제 브라우저 엔진을 구분하여 기록한다. fake 결과를 Safari/Firefox 검증이라고 주장하지 않는다.
-- P2·P3·P4 검증은 [chat-memory-progress.md](chat-memory-progress.md)에 정리했다. 다중 탭 동시 생성은 신호로 감지·거부하며 잠금이 아니고, 백업은 형식·중복·순서·참조를 검증한 뒤 사용자 확인 시에만 대체한다.
-- 실제 GPU 추론과 앱 모델(Gemma 4 LiteRT) 품질 검증은 아직 별도다. 프롬프트 구조 검증(`training/lora/memory_probe.py`)과 브라우저 검증(가짜 Worker)을 실제 모델 품질로 확대 해석하지 않는다.
+Use the actual React app for storage, backup/import, paging, memory editing,
+cancellation/retry and stale-response checks. Report real GPU measurements
+separately from static checks.

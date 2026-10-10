@@ -72,7 +72,6 @@
   --default-transition-duration: 150ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* Desktop-first: the layout steps down at these widths with max-* variants. */
   --breakpoint-*: initial;
   --breakpoint-xs: 361px;
   --breakpoint-sm: 721px;

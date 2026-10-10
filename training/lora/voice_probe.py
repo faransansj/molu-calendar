@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """말투 프로브: 앱 프롬프트(카드+예시)로 캐릭터별 고정 질문을 생성하고 말투 지표를 자동 판정한다.
 
-    node training/lora/build_style_probes.mjs training/lora/runs/voice-probe/prompts.jsonl
+    node training/lora/build_style_probes.ts training/lora/runs/voice-probe/prompts.jsonl
     cd training/lora && uv run --locked python voice_probe.py
 
 지표(모두 휴리스틱이며 원문 답변을 함께 저장한다):
@@ -125,7 +125,6 @@ def main():
             record['metrics'] = metrics
             record['failed'] = [name for name, value in metrics.items() if not value['ok'] and not value.get('skipped')]
             rows.append(record)
-        # 재채점 결과를 파일에 반영한다: 나중 비교가 옛 지표를 읽지 않도록.
         (responses / 'responses.jsonl').write_text(''.join(json.dumps(record, ensure_ascii=False) + '\n' for record in rows), encoding='utf-8')
         write_report(responses, rows, args, rejudged_from=args.prompts)
         print('재채점 완료:', responses / 'summary.md')

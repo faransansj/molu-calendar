@@ -45,7 +45,6 @@ export function toPost(board: BoardId, thread: Thread): Post {
 
 export interface ClientOptions {
   fetcher?: typeof fetch;
-  /** Delay between requests in milliseconds. */
   delay?: number;
   retries?: number;
 }

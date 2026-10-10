@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { Filter, View } from "../App.tsx";
-import { useCalendar } from "../hooks.ts";
-import { CATEGORIES, shiftMonth } from "../lib/calendar.ts";
+import { useCalendar } from "../hooks/calendar.ts";
+import { CATEGORIES, shiftMonth } from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
-import type { Category, FeedEvent } from "../lib/feed.ts";
+import type { Category, FeedEvent } from "../lib/calendar/feed.ts";
 import { Icon } from "./Icon.tsx";
 import { KstClock } from "./KstClock.tsx";
 import { Diamond, categoryStyle } from "./ui.tsx";

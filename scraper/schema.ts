@@ -1,7 +1,11 @@
 import { z } from "zod";
-import { validDate, validInstant } from "../src/lib/calendar.ts";
-import { CATEGORY_KEYS, KIND_KEYS, STATUS_KEYS } from "../src/lib/feed.ts";
-import type { Feed } from "../src/lib/feed.ts";
+import { validDate, validInstant } from "../src/lib/calendar/calendar.ts";
+import {
+  CATEGORY_KEYS,
+  KIND_KEYS,
+  STATUS_KEYS,
+} from "../src/lib/calendar/feed.ts";
+import type { Feed } from "../src/lib/calendar/feed.ts";
 
 const instant = z
   .string()

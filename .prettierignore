@@ -3,14 +3,7 @@ public/
 scraper/fixtures/
 reference/
 
-training/
-*.test.js
-chat-*.js
-local-ai*.js
-persona.js
-momotalk.js
-calendar.js
-banner-crop.js
-raid-banners.js
-
-tools/upstream-browser/
+training/*
+!training/lora/
+training/lora/*
+!training/lora/*.ts

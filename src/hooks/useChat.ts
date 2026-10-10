@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChatTranscript } from "../../chat-transcript.js";
-import type { ChatMessage, RoomCache, Summary } from "../../chat-transcript.js";
+import { ChatTranscript } from "../lib/chat/transcript.ts";
+import type {
+  ChatMessage,
+  RoomCache,
+  Summary,
+} from "../lib/chat/transcript.ts";
 
 export function useChat() {
   const transcript = useRef<ChatTranscript | null>(null);
@@ -29,15 +33,7 @@ export function useChat() {
   useEffect(() => {
     let disposed = false;
     let opened: ChatTranscript | null = null;
-    let legacyRaw: string | null = null;
-    try {
-      // Preserve the snapshot; ChatTranscript.open migrates it atomically to IndexedDB.
-      legacyRaw = localStorage.getItem("molu.momotalk.v1");
-    } catch {
-      setError("이 브라우저에서 이전 대화 저장소를 읽을 수 없어요.");
-    }
     void ChatTranscript.open({
-      legacyRaw,
       onBlocked: () => setError("다른 탭을 닫고 다시 시도해 주세요."),
     })
       .then(async (store) => {
@@ -62,19 +58,11 @@ export function useChat() {
     broadcasts.onmessage = () => {
       void refresh().catch((cause: unknown) => setError(String(cause)));
     };
-    const storageChanged = (event: StorageEvent) => {
-      if (event.key === "molu.momotalk.v1" && event.newValue !== legacyRaw)
-        setError(
-          "이전 버전의 대화가 다른 탭에서 변경됐어요. 새로고침 전에 기록을 내보내 주세요.",
-        );
-    };
-    window.addEventListener("storage", storageChanged);
     return () => {
       disposed = true;
       opened?.close();
       transcript.current = null;
       broadcasts.close();
-      window.removeEventListener("storage", storageChanged);
     };
   }, [attempt, refresh]);
   const mutate = async <T>(
@@ -116,7 +104,7 @@ export function useChat() {
     message: {
       me: boolean;
       text: string;
-      sourceKind?: string;
+      sourceKind?: import("../lib/chat/types.ts").SourceKind;
       expectedLastMessageId?: string;
     },
   ) => {

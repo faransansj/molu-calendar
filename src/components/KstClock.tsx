@@ -1,5 +1,5 @@
-import { useNow } from "../hooks.ts";
-import { TIME_ZONE, dateKey, dayLabel } from "../lib/calendar.ts";
+import { useNow } from "../hooks/calendar.ts";
+import { TIME_ZONE, dateKey, dayLabel } from "../lib/calendar/calendar.ts";
 
 const clock = new Intl.DateTimeFormat("en-GB", {
   timeZone: TIME_ZONE,

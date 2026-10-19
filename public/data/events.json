@@ -2,7 +2,7 @@
   "schema_version": 2,
   "region": "KR",
   "timezone": "Asia/Seoul",
-  "generated_at": "2026-10-12T19:41:20.737Z",
+  "generated_at": "2026-10-19T16:51:44.868Z",
   "source": {
     "name": "블루 아카이브 공식 커뮤니티 (NEXON)",
     "url": "https://forum.nexon.com/bluearchive"
@@ -1430,8 +1430,7 @@
       "status": "confirmed",
       "notes": [
         "점검 시간 동안 게임 접속 불가",
-        "점검 보상: 청휘석 720개 + 청휘석 120개 (연장점검 보상)",
-        "점검 보상: 청휘석 720개"
+        "점검 보상: 청휘석 720개 + 청휘석 120개 (연장점검 보상)"
       ],
       "periods": [
         {
@@ -1456,7 +1455,7 @@
         }
       ],
       "first_seen": "2026-10-05T17:04:40.709Z",
-      "updated_at": "2026-10-05T17:04:40.709Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "event-20260526-25a06288",
@@ -3557,26 +3556,26 @@
         "9월 1일(화) 오전 11시 모집 포인트 초기화"
       ],
       "images": [
-        "https://dszw1qtcnsa5e.cloudfront.net/community/20260813/988b1e05-a1a9-41d0-bb07-364ab21fcc58/image.png",
-        "https://dszw1qtcnsa5e.cloudfront.net/community/20260813/fe7f964f-eb87-431d-9fd4-17caf05d1ab1/image.png"
+        "https://dszw1qtcnsa5e.cloudfront.net/community/20260814/7486f7f0-c386-4888-93c8-c91cefd61af6/%EB%AA%A8%EC%A7%91%EB%8B%88%EC%BD%94.png",
+        "https://dszw1qtcnsa5e.cloudfront.net/community/20260814/9de7f1e4-16f0-4d90-b0af-7a62517a5d98/%EB%AA%A8%EC%A7%91%EC%BF%A0%EB%A3%A8%EB%AF%B8.png"
       ],
-      "source_url": "https://forum.nexon.com/bluearchive/board_view?board=1018&thread=3523079",
+      "source_url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3515599",
       "sources": [
-        {
-          "url": "https://forum.nexon.com/bluearchive/board_view?board=1018&thread=3523079",
-          "title": "8/18(화) 특별 픽업 모집 안내",
-          "board": "공지사항",
-          "published_at": "2026-08-17T09:00:00.000Z"
-        },
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3515599",
           "title": "(완료) 8/18(화) 업데이트 상세 안내 (8/20 추가)",
           "board": "업데이트",
           "published_at": "2026-08-17T09:00:00.000Z"
+        },
+        {
+          "url": "https://forum.nexon.com/bluearchive/board_view?board=1018&thread=3523079",
+          "title": "8/18(화) 특별 픽업 모집 안내",
+          "board": "공지사항",
+          "published_at": "2026-08-17T09:00:00.000Z"
         }
       ],
       "first_seen": "2026-10-05T17:04:40.709Z",
-      "updated_at": "2026-10-05T17:04:40.709Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "story-20260818-4230b305",
@@ -5144,7 +5143,7 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         },
@@ -5156,7 +5155,7 @@
         }
       ],
       "first_seen": "2026-10-05T17:04:40.709Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "maintenance-20261013-8d493e49",
@@ -5166,7 +5165,7 @@
       "kind": "interval",
       "all_day": false,
       "start": "2026-10-13T11:00:00+09:00",
-      "end": "2026-10-13T15:00:00+09:00",
+      "end": "2026-10-13T14:20:00+09:00",
       "status": "confirmed",
       "notes": [
         "점검 시간 동안 게임 접속 불가",
@@ -5175,7 +5174,7 @@
       "periods": [
         {
           "label": "점검 보상 수령 기간",
-          "start": "2026-10-13T15:00:00+09:00",
+          "start": "2026-10-13T14:20:00+09:00",
           "end": "2026-10-20T23:59:00+09:00"
         }
       ],
@@ -5183,7 +5182,7 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         },
@@ -5195,7 +5194,7 @@
         }
       ],
       "first_seen": "2026-10-12T19:41:20.737Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "event-20261013-090923f0",
@@ -5204,7 +5203,7 @@
       "category": "event",
       "kind": "interval",
       "all_day": false,
-      "start": "2026-10-13T15:00:00+09:00",
+      "start": "2026-10-13T14:20:00+09:00",
       "end": "2026-10-27T10:59:00+09:00",
       "start_after_maintenance": true,
       "status": "confirmed",
@@ -5215,13 +5214,13 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         }
       ],
       "first_seen": "2026-10-12T19:41:20.737Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "event-20261013-7408f9e7",
@@ -5230,14 +5229,14 @@
       "category": "event",
       "kind": "interval",
       "all_day": false,
-      "start": "2026-10-13T15:00:00+09:00",
+      "start": "2026-10-13T14:20:00+09:00",
       "end": "2026-10-27T10:59:00+09:00",
       "start_after_maintenance": true,
       "status": "confirmed",
       "periods": [
         {
           "label": "상점, 카드 뽑기 등 이벤트 보상 획득 및 교환 기간",
-          "start": "2026-10-13T15:00:00+09:00",
+          "start": "2026-10-13T14:20:00+09:00",
           "end": "2026-11-03T10:59:00+09:00",
           "start_after_maintenance": true
         }
@@ -5249,13 +5248,13 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         }
       ],
       "first_seen": "2026-10-12T19:41:20.737Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "pickup-20261013-74af2bae",
@@ -5264,7 +5263,7 @@
       "category": "pickup",
       "kind": "interval",
       "all_day": false,
-      "start": "2026-10-13T15:00:00+09:00",
+      "start": "2026-10-13T14:20:00+09:00",
       "end": "2026-10-27T10:59:00+09:00",
       "start_after_maintenance": true,
       "status": "confirmed",
@@ -5289,13 +5288,46 @@
         },
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         }
       ],
       "first_seen": "2026-10-12T19:41:20.737Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
+    },
+    {
+      "id": "maintenance-20261013-70e4a874",
+      "title": "10/13 임시점검 예정 안내 (15:10 ~ 17:10)",
+      "label": "점검",
+      "category": "maintenance",
+      "kind": "interval",
+      "all_day": false,
+      "start": "2026-10-13T15:10:00+09:00",
+      "end": "2026-10-13T17:10:00+09:00",
+      "status": "confirmed",
+      "notes": [
+        "점검 시간동안 게임 접속 불가",
+        "점검 보상: 청휘석 240개"
+      ],
+      "periods": [
+        {
+          "label": "점검 보상 수령 기간",
+          "start": "2026-10-13T17:10:00+09:00",
+          "end": "2026-10-20T23:59:00+09:00"
+        }
+      ],
+      "source_url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3562568",
+      "sources": [
+        {
+          "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3562568",
+          "title": "(완료) 10/13(화) 임시점검 예정 안내 (15:10 ~ 17:10) (추가)",
+          "board": "업데이트",
+          "published_at": "2026-10-13T06:08:23.000Z"
+        }
+      ],
+      "first_seen": "2026-10-19T16:51:44.868Z",
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "community-20261014-9860c53b",
@@ -5339,13 +5371,38 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         }
       ],
       "first_seen": "2026-10-12T19:41:20.737Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
+    },
+    {
+      "id": "maintenance-20261014-156bf6f6",
+      "title": "10/14 무중단 패치",
+      "label": "무중단 패치",
+      "category": "maintenance",
+      "kind": "interval",
+      "all_day": false,
+      "start": "2026-10-14T15:00:00+09:00",
+      "end": "2026-10-14T15:20:00+09:00",
+      "status": "confirmed",
+      "notes": [
+        "작업 시간 동안 게임 이용 가능 및 작업 완료 후 게임 재접속 시 패치 다운로드"
+      ],
+      "source_url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3563137",
+      "sources": [
+        {
+          "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3563137",
+          "title": "10/14(수) 무중단 패치 안내",
+          "board": "업데이트",
+          "published_at": "2026-10-14T05:00:00.000Z"
+        }
+      ],
+      "first_seen": "2026-10-19T16:51:44.868Z",
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "campaign-20261017-a557b585",
@@ -5361,7 +5418,7 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         },
@@ -5373,7 +5430,32 @@
         }
       ],
       "first_seen": "2026-10-05T17:04:40.709Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
+    },
+    {
+      "id": "event-20261017-afe8b580",
+      "title": "문주님의 특별 온타임 보상",
+      "category": "event",
+      "kind": "interval",
+      "all_day": false,
+      "start": "2026-10-17T12:00:00+09:00",
+      "end": "2026-10-24T23:59:00+09:00",
+      "status": "confirmed",
+      "description": "선생님, 키사키가 준비한 특별한 선물이 도착했어요! 🎁",
+      "images": [
+        "https://dszw1qtcnsa5e.cloudfront.net/community/20261008/249d53fd-a774-4b21-b192-baa309762d78/image202610081041372.png"
+      ],
+      "source_url": "https://forum.nexon.com/bluearchive/board_view?board=1039&thread=3559399",
+      "sources": [
+        {
+          "url": "https://forum.nexon.com/bluearchive/board_view?board=1039&thread=3559399",
+          "title": "문주님의 특별 온타임 보상",
+          "board": "진행 이벤트",
+          "published_at": "2026-10-17T03:00:00.000Z"
+        }
+      ],
+      "first_seen": "2026-10-19T16:51:44.868Z",
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "campaign-20261020-843d3c0e",
@@ -5389,7 +5471,7 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         },
@@ -5401,7 +5483,7 @@
         }
       ],
       "first_seen": "2026-10-05T17:04:40.709Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "campaign-20261020-e2e50e1e",
@@ -5417,7 +5499,7 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         },
@@ -5429,7 +5511,7 @@
         }
       ],
       "first_seen": "2026-10-05T17:04:40.709Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "raid-20261020-05868e63",
@@ -5455,13 +5537,13 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         }
       ],
       "first_seen": "2026-10-12T19:41:20.737Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "campaign-20261024-4ae2369d",
@@ -5477,7 +5559,7 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1076&thread=3555107",
-          "title": "10/13(화) 업데이트 상세 안내 (10/12 추가)",
+          "title": "(완료) 10/13(화) 업데이트 상세 안내 (10/12 추가)",
           "board": "업데이트",
           "published_at": "2026-10-12T09:00:00.000Z"
         },
@@ -5489,7 +5571,7 @@
         }
       ],
       "first_seen": "2026-10-05T17:04:40.709Z",
-      "updated_at": "2026-10-12T19:41:20.737Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     },
     {
       "id": "campaign-20261027-2763a227",
@@ -5522,7 +5604,7 @@
       "start": "2026-11-07",
       "end": "2026-11-09",
       "status": "confirmed",
-      "description": "11월 7일(토)부터 11월 8일(일)까지 블루 아카이브 ‘5주년 페스티벌’이 개최될 예정입니다! 🎉",
+      "description": "(10/13 수정) 멤버십 인증에 필요한 정보 내용이 변경되었습니다.",
       "periods": [
         {
           "label": "멤버십 번호 발급 일정",
@@ -5537,13 +5619,13 @@
       "sources": [
         {
           "url": "https://forum.nexon.com/bluearchive/board_view?board=1018&thread=3549630",
-          "title": "블루 아카이브 ‘5주년 페스티벌’ 행사 및 멤버십 번호 발급 안내",
+          "title": "(수정) 블루 아카이브 ‘5주년 페스티벌’ 행사 및 멤버십 번호 발급 안내",
           "board": "공지사항",
           "published_at": "2026-09-29T03:00:00.000Z"
         }
       ],
       "first_seen": "2026-10-05T17:04:40.709Z",
-      "updated_at": "2026-10-05T17:04:40.709Z"
+      "updated_at": "2026-10-19T16:51:44.868Z"
     }
   ]
 }

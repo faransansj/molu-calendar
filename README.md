@@ -4,6 +4,11 @@ Unofficial Blue Archive calendar for the KR server, built from Nexon's official 
 
 [Open the calendar](https://7591yj.github.io/molu-calendar/)
 
+Official banners use a fixed 16:9 frame and preload when the gallery mounts.
+Next/previous controls slide in the corresponding direction and restart the
+six-second auto-rotation countdown. Hovering or focusing the image pauses
+rotation; reduced motion disables animation and auto-rotation.
+
 ## Development
 
 Requires Node.js 22.18+ and pnpm 10.11.0. Nix users can run `nix develop`.

@@ -645,3 +645,27 @@
     opacity: 0;
   }
 }
+
+@keyframes banner-in-next {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes banner-out-next {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes banner-in-prev {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes banner-out-prev {
+  to {
+    transform: translateX(100%);
+  }
+}

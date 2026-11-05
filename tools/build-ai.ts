@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdir, cp } from "node:fs/promises";
+import { mkdir, cp, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 await build({
@@ -14,6 +14,7 @@ await build({
   define: { "import.meta.env.BASE_URL": '"/"' },
 });
 const runtime = dirname(fileURLToPath(import.meta.resolve("@litert-lm/core")));
+await rm("public/vendor/litert-lm/0.17.1", { recursive: true, force: true });
 await mkdir("public/vendor/litert-lm/0.17.1", { recursive: true });
 await cp(`${runtime}/../wasm`, "public/vendor/litert-lm/0.17.1", {
   recursive: true,

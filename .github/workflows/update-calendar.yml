@@ -2,14 +2,18 @@ name: Update calendar
 
 on:
   schedule:
-    # Mondays 10:00 UTC = 19:00 KST. Tuesday's update and pickup notices are usually posted by then.
-    - cron: "0 10 * * 1"
+    # Every day at 06:00 KST (21:00 UTC the previous day).
+    - cron: "0 21 * * *"
   workflow_dispatch:
     inputs:
       backfill:
         description: Read more history (3 pages × 50 threads per board)
         type: boolean
         default: false
+      publication_id:
+        description: Immutable staged publication to hotfix (skips scraping)
+        type: string
+        required: false
   push:
     branches: [main]
     paths-ignore: ["**.md", "reference/**"]
@@ -20,13 +24,11 @@ concurrency:
 
 jobs:
   scrape:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && inputs.publication_id == ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
-    outputs:
-      changed: ${{ steps.commit.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -39,10 +41,8 @@ jobs:
         run: |
           if [ "${{ inputs.backfill }}" = "true" ]; then pnpm scrape:backfill; else pnpm scrape; fi
       - name: Commit schedule changes
-        id: commit
         run: |
           if git diff --quiet -- public/data/events.json; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No schedule changes." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -52,20 +52,18 @@ jobs:
           git commit -m "chore(data): refresh official schedules"
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: scrape
-    if: always() && (github.event_name == 'push' || needs.scrape.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
+    if: always() && !cancelled() && (needs.scrape.result == 'success' || needs.scrape.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
+      PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+      PUBLICATION_SOURCE: ${{ github.event_name == 'push' && 'deployed' || 'staged' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,19 +74,41 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare immutable publication
+        id: prepare
+        run: node tools/publish.ts prepare
+        env:
+          PUBLICATION_ID: ${{ inputs.publication_id }}
       - run: pnpm check
-      - name: Configure GitHub Pages
-        id: pages
-        uses: actions/configure-pages@v5
-      - name: Build for GitHub Pages
+      - name: Build
         run: pnpm build
         env:
-          SITE_URL: ${{ steps.pages.outputs.origin }}
-          SITE_BASE: ${{ steps.pages.outputs.base_path }}
-      - name: Upload site
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+          SITE_URL: ${{ vars.SITE_URL }}
+      - name: Deploy to Cloudflare
+        id: deploy
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Mark publication deployed
+        if: steps.prepare.outputs.publication_id != ''
+        run: node tools/publish.ts complete
+        env:
+          PUBLICATION_ID: ${{ steps.prepare.outputs.publication_id }}
+      - name: Mark publication failed
+        if: always() && (failure() || cancelled()) && steps.deploy.outcome != 'success' && (steps.prepare.outputs.publication_id != '' || inputs.publication_id != '')
+        # Keep this callback independent of checkout, Node setup, and install:
+        # a requested hotfix may fail or be cancelled before prepare can run.
+        run: |
+          if [[ ! "$PUBLICATION_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "Invalid PUBLICATION_ID" >&2
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            --request PUT \
+            --header "Authorization: Bearer $PUBLISH_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"state":"failed"}' \
+            "${ADMIN_ORIGIN%/}/api/publish/releases/$PUBLICATION_ID/status"
+        env:
+          PUBLICATION_ID: ${{ steps.prepare.outputs.publication_id || inputs.publication_id }}

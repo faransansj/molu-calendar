@@ -7,3 +7,4 @@ training/*
 !training/lora/
 training/lora/*
 !training/lora/*.ts
+.publication/

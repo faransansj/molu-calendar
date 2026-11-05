@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Agenda } from "./components/Agenda.tsx";
+import { AdminSettings } from "./components/AdminSettings.tsx";
+import { AdminLoginDialog } from "./components/AdminLoginDialog.tsx";
+import { CalendarSettings } from "./components/CalendarSettings.tsx";
 import { DayBriefing } from "./components/DayBriefing.tsx";
 import { EventDialog } from "./components/EventDialog.tsx";
 import { MomoTalk } from "./components/MomoTalk.tsx";
@@ -14,6 +17,8 @@ import {
   useNow,
   usePersistentState,
 } from "./hooks/calendar.ts";
+import { AdminContext, useAdmin } from "./hooks/useAdmin.ts";
+import { applyOverrides, type EventOverride } from "./lib/admin/overrides.ts";
 import {
   CATEGORIES,
   addDays,
@@ -27,7 +32,9 @@ import {
 } from "./lib/calendar/calendar.ts";
 import { cx } from "./lib/cx.ts";
 import type { Category, FeedEvent } from "./lib/calendar/feed.ts";
+import { CATEGORY_KEYS } from "./lib/calendar/feed.ts";
 import { eventMatcher } from "./lib/calendar/search.ts";
+import { sitePath } from "./lib/urls.ts";
 
 export type View = "timeline" | "month" | "list";
 export type Filter = "all" | "bookmarks" | Category;
@@ -38,6 +45,10 @@ const isFilter = (value: unknown): value is Filter =>
   value === "all" ||
   value === "bookmarks" ||
   (typeof value === "string" && Object.hasOwn(CATEGORIES, value));
+
+const isCategoryList = (value: unknown): value is Category[] =>
+  Array.isArray(value) &&
+  value.every((item) => (CATEGORY_KEYS as readonly unknown[]).includes(item));
 
 function initialUrlState() {
   const params = new URLSearchParams(location.search);
@@ -56,12 +67,27 @@ function initialUrlState() {
   };
 }
 
-export function App({ events: feedEvents }: { events: FeedEvent[] }) {
+export function App({
+  events: feedEvents,
+  adminPage,
+  publishedOverrides,
+}: {
+  events: FeedEvent[];
+  adminPage: boolean;
+  publishedOverrides: readonly EventOverride[];
+}) {
+  const admin = useAdmin(adminPage, publishedOverrides);
+  const adminBlocked = adminPage && (!admin.admin || admin.status !== "ready");
   const now = useNow(30_000);
   // The weekly scrape drops expired open-ended events; hide them between scrapes too.
   const events = useMemo(
-    () => feedEvents.filter((event) => !openEndedExpired(event, now)),
-    [feedEvents, now],
+    () =>
+      applyOverrides(
+        feedEvents,
+        admin.overrides,
+        adminPage ? undefined : (name) => sitePath(`resource/admin/${name}`),
+      ).filter((event) => !openEndedExpired(event, now)),
+    [feedEvents, admin.overrides, adminPage, now],
   );
   const today = dateKey(now);
   const [initial] = useState(initialUrlState);
@@ -76,6 +102,11 @@ export function App({ events: feedEvents }: { events: FeedEvent[] }) {
   const [filter, setFilter] = useState<Filter>(
     isFilter(initial.filter) ? initial.filter : "all",
   );
+  const [folded, setFolded] = usePersistentState<Category[]>(
+    "molu.timeline.folded.v1",
+    [],
+    isCategoryList,
+  );
   const [selected, setSelected] = useState(
     initial.date ?? (initial.month ? `${initial.month}-01` : today),
   );
@@ -84,6 +115,7 @@ export function App({ events: feedEvents }: { events: FeedEvent[] }) {
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [momoOpen, setMomoOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [momoUnread, setMomoUnread] = useState(0);
   const [query, setQuery] = useState(initial.query);
   const [flash, setFlash] = useState<{ id: string; n: number } | null>(null);
@@ -158,6 +190,17 @@ export function App({ events: feedEvents }: { events: FeedEvent[] }) {
     setFlash((current) => ({ id: event.id, n: (current?.n ?? 0) + 1 }));
   };
 
+  const changeView = (next: View) => {
+    setView(next);
+    setStoredView(next);
+  };
+  const toggleFolded = (category: Category) =>
+    setFolded((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category],
+    );
+
   const calendar = {
     events: visible,
     shown: matches ? visible.filter((event) => matches.has(event.id)) : visible,
@@ -173,88 +216,129 @@ export function App({ events: feedEvents }: { events: FeedEvent[] }) {
   };
   return (
     <CalendarContext value={calendar}>
-      <a
-        className="fixed -top-25 left-4 z-100 rounded-lg bg-ink px-4 py-3 text-white focus:top-3"
-        href="#board"
-      >
-        캘린더로 바로 가기
-      </a>
-      <main className="mx-auto flex h-dvh min-h-[620px] max-w-[1520px] flex-col px-5 py-3.5 max-md:h-auto max-md:min-h-0 max-md:px-3 max-md:pt-2.5 max-md:pb-6 max-sm:px-2 max-sm:pt-2">
-        <section
-          id="board"
-          aria-labelledby="month-heading"
-          className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_310px] grid-rows-[minmax(0,1fr)] overflow-clip border border-t-4 border-frame border-t-accent bg-surface shadow-paper max-lg:grid-cols-[minmax(0,1fr)_270px] max-md:block max-md:flex-none max-sm:shadow-paper-sm"
+      <AdminContext value={admin}>
+        <div
+          inert={adminBlocked}
+          aria-hidden={adminBlocked || undefined}
+          className={cx(
+            adminBlocked && "pointer-events-none blur-sm select-none",
+          )}
         >
-          <div className="flex min-h-0 min-w-0 flex-col">
-            <Toolbar
-              view={view}
-              filter={activeFilter}
-              query={query}
-              found={found}
-              onView={(next) => {
-                setView(next);
-                setStoredView(next);
-              }}
-              onFilter={setFilter}
-              onQuery={(next) => {
-                setQuery(next);
-                setFlash(null);
-                jump.current = -1;
-              }}
-              onFind={findNext}
-              unread={momoUnread}
-              onMomoTalk={() => setMomoOpen(true)}
-            />
-            <div
-              className={cx(
-                "flex min-h-0 min-w-0 flex-1 flex-col *:min-h-0 *:flex-1 max-md:flex-none",
-                view === "list"
-                  ? "max-md:*:flex-none"
-                  : "max-md:h-[calc(100dvh-var(--chrome))] max-md:min-h-[460px] max-sm:min-h-[440px] max-xs:h-[calc(100dvh-200px)]",
-                view === "timeline"
-                  ? "[--chrome:130px] max-sm:[--chrome:180px]"
-                  : "[--chrome:180px] max-sm:[--chrome:230px]",
-              )}
+          <a
+            className="fixed -top-25 left-4 z-100 rounded-lg bg-ink px-4 py-3 text-white focus:top-3"
+            href="#board"
+          >
+            캘린더로 바로 가기
+          </a>
+          <main className="mx-auto flex h-dvh min-h-[620px] max-w-[1520px] flex-col px-5 py-3.5 max-md:h-auto max-md:min-h-0 max-md:px-3 max-md:pt-2.5 max-md:pb-6 max-sm:px-2 max-sm:pt-2">
+            {adminPage && admin.admin && (
+              <div className="mb-3 max-h-[45dvh] shrink-0 overflow-y-auto">
+                <AdminSettings />
+              </div>
+            )}
+            <section
+              id="board"
+              aria-labelledby="month-heading"
+              className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_310px] grid-rows-[minmax(0,1fr)] overflow-clip border border-t-4 border-frame border-t-accent bg-surface shadow-paper max-lg:grid-cols-[minmax(0,1fr)_270px] max-md:block max-md:flex-none max-sm:shadow-paper-sm"
             >
-              {view === "timeline" ? (
-                <Timeline />
-              ) : view === "month" ? (
-                <MonthGrid />
-              ) : (
-                <Agenda />
-              )}
-            </div>
-          </div>
-          <DayBriefing
-            onSources={() => setSourcesOpen(true)}
-            onSubscribe={() => setSubscribeOpen(true)}
+              <div className="flex min-h-0 min-w-0 flex-col">
+                <Toolbar
+                  view={view}
+                  filter={activeFilter}
+                  query={query}
+                  found={found}
+                  onView={changeView}
+                  onFilter={setFilter}
+                  onQuery={(next) => {
+                    setQuery(next);
+                    setFlash(null);
+                    jump.current = -1;
+                  }}
+                  onFind={findNext}
+                  unread={momoUnread}
+                  onMomoTalk={() => {
+                    setSettingsOpen(false);
+                    setMomoOpen(true);
+                  }}
+                  onSettings={() => setSettingsOpen(true)}
+                />
+                <div
+                  className={cx(
+                    "flex min-h-0 min-w-0 flex-1 flex-col *:min-h-0 *:flex-1 max-md:flex-none",
+                    view === "list"
+                      ? "max-md:*:flex-none"
+                      : "max-md:h-[calc(100dvh-var(--chrome))] max-md:min-h-[460px] max-sm:min-h-[440px] max-xs:h-[calc(100dvh-200px)]",
+                    view === "timeline"
+                      ? "[--chrome:130px] max-sm:[--chrome:180px]"
+                      : "[--chrome:180px] max-sm:[--chrome:230px]",
+                  )}
+                >
+                  {view === "timeline" ? (
+                    <Timeline folded={folded} toggle={toggleFolded} />
+                  ) : view === "month" ? (
+                    <MonthGrid />
+                  ) : (
+                    <Agenda />
+                  )}
+                </div>
+              </div>
+              <DayBriefing
+                onSources={() => setSourcesOpen(true)}
+                onSubscribe={() => setSubscribeOpen(true)}
+              />
+            </section>
+          </main>
+          <EventDialog
+            event={adminBlocked ? null : detail}
+            now={now}
+            bookmarked={!!detail && bookmarks.has(detail.id)}
+            onBookmark={toggle}
+            onClose={() => setDetailId(null)}
+            onShowDay={(day) => {
+              select(day);
+              setDetailId(null);
+              document
+                .getElementById("board")
+                ?.scrollIntoView({ block: "start" });
+            }}
           />
-        </section>
-      </main>
-      <EventDialog
-        event={detail}
-        now={now}
-        bookmarked={!!detail && bookmarks.has(detail.id)}
-        onBookmark={toggle}
-        onClose={() => setDetailId(null)}
-        onShowDay={(day) => {
-          select(day);
-          setDetailId(null);
-          document.getElementById("board")?.scrollIntoView({ block: "start" });
-        }}
-      />
-      <MomoTalk
-        events={events}
-        open={momoOpen}
-        onClose={() => setMomoOpen(false)}
-        onUnread={setMomoUnread}
-      />
-      <SourcesDialog open={sourcesOpen} onClose={() => setSourcesOpen(false)} />
-      <SubscribeDialog
-        open={subscribeOpen}
-        onClose={() => setSubscribeOpen(false)}
-        bookmarked={events.filter((event) => bookmarks.has(event.id))}
-      />
+          <MomoTalk
+            events={events}
+            open={!adminBlocked && momoOpen}
+            settings={!adminBlocked && settingsOpen}
+            setSettings={setSettingsOpen}
+            settingsContent={
+              <>
+                <CalendarSettings
+                  view={view}
+                  onView={changeView}
+                  folded={folded}
+                  onToggleFolded={toggleFolded}
+                  bookmarksOnly={activeFilter === "bookmarks"}
+                  onBookmarksOnly={(enabled) =>
+                    setFilter(enabled ? "bookmarks" : "all")
+                  }
+                  onSubscribe={() => setSubscribeOpen(true)}
+                  onSources={() => setSourcesOpen(true)}
+                />
+                {!adminPage && <AdminSettings />}
+              </>
+            }
+            onClose={() => setMomoOpen(false)}
+            onUnread={setMomoUnread}
+          />
+          <SourcesDialog
+            open={!adminBlocked && sourcesOpen}
+            onClose={() => setSourcesOpen(false)}
+          />
+          <SubscribeDialog
+            open={!adminBlocked && subscribeOpen}
+            onClose={() => setSubscribeOpen(false)}
+            bookmarked={events.filter((event) => bookmarks.has(event.id))}
+          />
+        </div>
+        {adminPage && <AdminLoginDialog open={adminBlocked} />}
+      </AdminContext>
     </CalendarContext>
   );
 }

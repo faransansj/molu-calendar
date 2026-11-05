@@ -11,3 +11,7 @@ public/local-ai-worker.bundle.js*
 public/vendor/
 training/lora/.venv/
 training/lora/runs/
+src/server/worker-configuration.d.ts
+.publication/
+public/data/published.json
+public/resource/admin/

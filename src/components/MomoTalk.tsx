@@ -15,6 +15,7 @@ import {
   ConfirmButton,
   Dialog,
   Notice,
+  Switch,
   field,
   iconButton,
   primaryButton,
@@ -139,11 +140,17 @@ function AIBadge({
 export function MomoTalk({
   events,
   open,
+  settings,
+  setSettings,
+  settingsContent,
   onClose,
   onUnread,
 }: {
   events: FeedEvent[];
   open: boolean;
+  settings: boolean;
+  setSettings: (settings: boolean) => void;
+  settingsContent: ReactNode;
   onClose: () => void;
   onUnread: (total: number) => void;
 }) {
@@ -176,7 +183,6 @@ export function MomoTalk({
     true,
     isBoolean,
   );
-  const [settings, setSettings] = useState(false);
   const [pane, setPane] = useState<"friends" | "chat">("friends");
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [query, setQuery] = useState("");
@@ -254,7 +260,7 @@ export function MomoTalk({
     };
   }, [room, chat.store, memoryVersion]);
   useEffect(() => {
-    if (!open) return;
+    if (!open && !settings) return;
     const controller = new AbortController();
     fetch(sitePath("resource/momotalk/students.json"), {
       signal: controller.signal,
@@ -282,7 +288,7 @@ export function MomoTalk({
         if (!controller.signal.aborted) setLoadError(true);
       });
     return () => controller.abort();
-  }, [open, attempt]);
+  }, [open, settings, attempt]);
 
   const changed = useCallback(async () => {
     chat.notify();
@@ -493,679 +499,704 @@ export function MomoTalk({
     </button>
   );
   const activeMemories = memories.filter((m) => m.enabled).length;
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      label="MomoTalk"
-      labelledBy="momotalk-title"
-      icon="chat"
-      className="w-[min(900px,calc(100vw-24px))]"
-      actions={
-        <>
-          <button
-            type="button"
-            className={iconButton}
-            aria-label="모모톡 알림음"
-            aria-pressed={sound}
-            onClick={() => setSound(!sound)}
-          >
-            <Icon name={sound ? "sound" : "muted"} />
-          </button>
-          <button
-            type="button"
-            className={cx(
-              iconButton,
-              "aria-pressed:bg-selected aria-pressed:text-blue",
-            )}
-            aria-label="모모톡 설정"
-            aria-pressed={settings}
-            onClick={() => setSettings(!settings)}
-          >
-            <Icon name="settings" />
-          </button>
-        </>
+  const storageNotice = chat.error && (
+    <Notice
+      tone="warn"
+      className="mb-3 shrink-0"
+      action={
+        <button
+          type="button"
+          className={cx(quietButton, smallButton, "min-h-8!")}
+          onClick={() => void chat.retry()}
+        >
+          다시 시도
+        </button>
       }
     >
-      <h2 id="momotalk-title" className="sr-only">
-        MomoTalk
-      </h2>
-      <div className="flex h-[min(650px,calc(100dvh-160px))] min-h-[300px] flex-col">
-        {chat.error && (
-          <Notice
-            tone="warn"
-            className="mb-3 shrink-0"
-            action={
-              <button
-                type="button"
-                className={cx(quietButton, smallButton, "min-h-8!")}
-                onClick={() => void chat.retry()}
-              >
-                다시 시도
-              </button>
-            }
-          >
-            대화를 저장하지 못했어요. {chat.error}
-          </Notice>
-        )}
-        {settings ? (
+      대화를 저장하지 못했어요. {chat.error}
+    </Notice>
+  );
+
+  return (
+    <>
+      <Dialog
+        open={open}
+        onClose={onClose}
+        label="MomoTalk"
+        labelledBy="momotalk-title"
+        icon="chat"
+        className="w-[min(900px,calc(100vw-24px))]"
+        actions={
           <>
-            <header className="flex shrink-0 items-center gap-3 border-b border-line pb-3">
-              <button
-                type="button"
-                className={iconButton}
-                aria-label="모모톡으로 돌아가기"
-                onClick={() => setSettings(false)}
-              >
-                <Icon name="chevron" className="rotate-180" />
-              </button>
-              <strong className="font-display text-lg font-medium text-ink">
-                모모톡 설정
-              </strong>
-            </header>
-            <div className="min-h-0 flex-1 scroll-thin overflow-y-auto">
-              <MomoSettings
-                store={chat.store}
-                students={students}
-                busy={!!busy}
-                onChange={changed}
-              />
-            </div>
+            <button
+              type="button"
+              className={iconButton}
+              aria-label="모모톡 알림음"
+              aria-pressed={sound}
+              onClick={() => setSound(!sound)}
+            >
+              <Icon name={sound ? "sound" : "muted"} />
+            </button>
+            <button
+              type="button"
+              className={cx(
+                iconButton,
+                "aria-pressed:bg-selected aria-pressed:text-blue",
+              )}
+              aria-label="MOLU 설정"
+              aria-pressed={settings}
+              onClick={() => setSettings(!settings)}
+            >
+              <Icon name="settings" />
+            </button>
           </>
-        ) : room ? (
-          <>
-            <header className="flex shrink-0 items-center gap-3 border-b border-line pb-3">
-              <button
-                type="button"
-                className={iconButton}
-                aria-label="대화 목록으로"
-                onClick={leaveRoom}
-              >
-                <Icon name="chevron" className="rotate-180" />
-              </button>
-              <button
-                type="button"
-                className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left"
-                onClick={() =>
-                  setPanel(panel === "profile" ? "chat" : "profile")
-                }
-                aria-expanded={panel === "profile"}
-                aria-label={`${student.short} 프로필`}
-              >
-                <Avatar student={student} />
-                <span className="min-w-0">
-                  <strong className="flex items-center gap-2">
-                    {student.short}
-                  </strong>
-                  <small className="block truncate text-xs text-muted">
-                    {[student.school, student.club].filter(Boolean).join(" · ")}
-                  </small>
-                </span>
-              </button>
-              {roomAI && ai.enabled && (
+        }
+      >
+        <h2 id="momotalk-title" className="sr-only">
+          MomoTalk
+        </h2>
+        <div className="flex h-[min(650px,calc(100dvh-160px))] min-h-[300px] flex-col">
+          {storageNotice}
+          {room ? (
+            <>
+              <header className="flex shrink-0 items-center gap-3 border-b border-line pb-3">
                 <button
                   type="button"
-                  className={cx(
-                    pill,
-                    "transition-colors",
-                    ai.ready
-                      ? "bg-selected text-blue-strong hover:bg-hover-strong"
-                      : "border border-dashed border-frame text-muted hover:text-blue",
-                  )}
-                  title={
-                    ai.ready
-                      ? "기기 안 AI가 답장해요"
-                      : ai.loading
-                        ? "모델을 준비하고 있어요"
-                        : "첫 답장 때 모델을 불러와요"
-                  }
-                  onClick={() => setSettings(true)}
+                  className={iconButton}
+                  aria-label="대화 목록으로"
+                  onClick={leaveRoom}
                 >
-                  <Icon name="sparkle" />
-                  {ai.ready
-                    ? "AI"
-                    : ai.loading
-                      ? `AI ${Math.round(ai.progress * 100)}%`
-                      : "AI 대기"}
+                  <Icon name="chevron" className="rotate-180" />
                 </button>
-              )}
-              {roomAI && (ai.enabled || memories.length > 0) && (
                 <button
                   type="button"
-                  className={cx(
-                    iconButton,
-                    "relative aria-pressed:bg-selected aria-pressed:text-blue",
-                  )}
-                  aria-label={`${student.short}의 기억 ${activeMemories}개`}
-                  title="기억"
-                  aria-pressed={panel === "memory"}
+                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left"
                   onClick={() =>
-                    setPanel(panel === "memory" ? "chat" : "memory")
+                    setPanel(panel === "profile" ? "chat" : "profile")
                   }
+                  aria-expanded={panel === "profile"}
+                  aria-label={`${student.short} 프로필`}
                 >
-                  <Icon name="book" />
-                  {activeMemories > 0 && (
-                    <span
-                      className="absolute top-0.5 right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-blue px-0.5 numeric text-[9px]/none text-white"
-                      aria-hidden="true"
-                    >
-                      {activeMemories}
-                    </span>
-                  )}
+                  <Avatar student={student} />
+                  <span className="min-w-0">
+                    <strong className="flex items-center gap-2">
+                      {student.short}
+                    </strong>
+                    <small className="block truncate text-xs text-muted">
+                      {[student.school, student.club]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </small>
+                  </span>
                 </button>
-              )}
-            </header>
-            {panel === "profile" ? (
-              <div className="flex-1 scroll-thin overflow-y-auto">
-                <Profile student={student}>
-                  {roomAI && (
-                    <AIBadge
-                      enabled={ai.enabled}
-                      onSettings={() => setSettings(true)}
-                    />
-                  )}
-                </Profile>
-                <div className="flex flex-wrap items-center gap-2 border-t border-line-soft px-5 pt-4 pb-5">
+                {roomAI && ai.enabled && (
                   <button
                     type="button"
-                    className={quietButton}
-                    onClick={() => setPanel("chat")}
-                  >
-                    대화로 돌아가기
-                  </button>
-                  <ConfirmButton
-                    className="ml-auto"
-                    confirm="이 대화와 기억을 지울까요?"
-                    disabled={!chat.store || !!busy}
-                    onConfirm={() => {
-                      const store = chat.store;
-                      if (!store) return;
-                      void store
-                        .deleteRoom(room)
-                        .then(changed)
-                        .then(leaveRoom)
-                        .catch((cause: unknown) =>
-                          setNote({ tone: "danger", text: messageOf(cause) }),
-                        );
-                    }}
-                  >
-                    <Icon name="trash" />
-                    대화 지우기
-                  </ConfirmButton>
-                </div>
-              </div>
-            ) : panel === "memory" ? (
-              <MemoryPanel
-                student={student}
-                store={chat.store}
-                memories={memories}
-                busy={!!busy}
-                onChange={changed}
-              />
-            ) : (
-              <>
-                <div
-                  role="log"
-                  aria-label={`${student.short}와의 대화`}
-                  aria-live="polite"
-                  className="flex min-h-0 flex-1 scroll-thin flex-col gap-4 overflow-y-auto bg-surface-2 p-4 max-sm:px-2"
-                >
-                  {!chat.ready && !chat.error && (
-                    <p role="status" className="m-auto text-sm text-muted">
-                      대화를 불러오는 중이에요…
-                    </p>
-                  )}
-                  {chat.store?.cached(room)?.hasMore && (
-                    <button
-                      type="button"
-                      className={cx(
-                        quietButton,
-                        smallButton,
-                        "self-center rounded-full",
-                      )}
-                      onClick={() => {
-                        const store = chat.transcript.current;
-                        if (store) {
-                          paging.current = true;
-                          void store
-                            .loadOlder(room)
-                            .then(chat.update)
-                            .catch((cause: unknown) =>
-                              setNote({
-                                tone: "danger",
-                                text: messageOf(cause),
-                              }),
-                            );
-                        }
-                      }}
-                    >
-                      이전 대화 더 보기
-                    </button>
-                  )}
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={cx(
-                        "group flex items-start gap-2",
-                        message.me && "flex-row-reverse",
-                      )}
-                    >
-                      {!message.me && <Avatar student={student} />}
-                      <div
-                        className={cx(
-                          "flex max-w-[80%] flex-col",
-                          message.me && "items-end",
-                        )}
-                      >
-                        {!message.me && (
-                          <p className="mb-1 text-xs font-semibold">
-                            {student.short}
-                          </p>
-                        )}
-                        <p
-                          className={cx(
-                            "rounded-lg px-3 py-2 text-sm/relaxed wrap-anywhere whitespace-pre-wrap",
-                            message.me
-                              ? "bg-blue text-white"
-                              : "border border-line bg-surface",
-                          )}
-                        >
-                          {message.text}
-                        </p>
-                        <div
-                          className={cx(
-                            "mt-1 flex min-h-5 items-center gap-2 text-2xs text-muted",
-                            message.me && "flex-row-reverse",
-                          )}
-                        >
-                          <time>{message.time}</time>
-                          {message.sourceKind === "model-output" && (
-                            <span
-                              className="inline-flex items-center gap-0.5 font-semibold text-blue [&_.icon]:size-3"
-                              title="기기 안 AI가 만든 답장"
-                            >
-                              <Icon name="sparkle" />
-                              AI
-                            </span>
-                          )}
-                          {roomAI &&
-                            (remembered.has(message.id) ? (
-                              <span className="inline-flex items-center gap-0.5 font-semibold text-bookmark [&_.icon]:size-3">
-                                <Icon name="check" />
-                                기억함
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                className="rounded-sm px-1 font-semibold opacity-0 transition-opacity group-hover:opacity-100 hover:text-blue focus-visible:opacity-100 pointer-coarse:opacity-100"
-                                disabled={blocked}
-                                onClick={() =>
-                                  remember(message.id, message.text)
-                                }
-                              >
-                                기억하기
-                              </button>
-                            ))}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {busy === room && (
-                    <div className="flex items-start gap-2" role="status">
-                      <Avatar student={student} />
-                      <div className="flex max-w-[80%] flex-col">
-                        <p className="mb-1 text-xs font-semibold">
-                          {student.short}
-                        </p>
-                        <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm/relaxed wrap-anywhere whitespace-pre-wrap">
-                          {stream || (
-                            <span
-                              className="typing inline-flex h-[1lh] items-center gap-1"
-                              aria-label={`${student.short} 입력 중`}
-                            >
-                              <span />
-                              <span />
-                              <span />
-                            </span>
-                          )}
-                        </p>
-                        <span className="mt-1 text-2xs text-muted">
-                          {ai.loading
-                            ? `모델 준비 중 ${Math.round(ai.progress * 100)}%`
-                            : context && `${context} 참고 중`}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={messagesEnd} />
-                </div>
-                {messages.length > 0 &&
-                  messages.at(-1)?.id !==
-                    chat.summaries.find((entry) => entry.roomId === room)?.last
-                      .id && (
-                    <button
-                      type="button"
-                      className={cx(
-                        primaryButton,
-                        smallButton,
-                        "relative z-10 -mt-12 mb-3 self-center rounded-full shadow-pop",
-                      )}
-                      onClick={() => void chat.load(room)}
-                    >
-                      <Icon name="chevron" className="rotate-90" />
-                      최신 대화로
-                    </button>
-                  )}
-                {(note || retryable) && (
-                  <Notice
-                    tone={note?.tone ?? "warn"}
-                    icon={note?.tone === "info" ? "check" : "info"}
-                    className="mt-3 shrink-0"
-                    action={
-                      note?.settings
-                        ? settingsButton
-                        : retryable && note?.tone !== "info"
-                          ? retryButton
-                          : undefined
+                    className={cx(
+                      pill,
+                      "transition-colors",
+                      ai.ready
+                        ? "bg-selected text-blue-strong hover:bg-hover-strong"
+                        : "border border-dashed border-frame text-muted hover:text-blue",
+                    )}
+                    title={
+                      ai.ready
+                        ? "기기 안 AI가 답장해요"
+                        : ai.loading
+                          ? "모델을 준비하고 있어요"
+                          : "첫 답장 때 모델을 불러와요"
                     }
-                    onDismiss={note ? () => setNote(null) : undefined}
+                    onClick={() => setSettings(true)}
                   >
-                    {note?.text ?? `${student.short}의 답장을 받지 못했어요.`}
-                  </Notice>
+                    <Icon name="sparkle" />
+                    {ai.ready
+                      ? "AI"
+                      : ai.loading
+                        ? `AI ${Math.round(ai.progress * 100)}%`
+                        : "AI 대기"}
+                  </button>
                 )}
-                <div
-                  className="flex shrink-0 flex-wrap justify-end gap-2 pt-3"
-                  aria-label="답장 선택"
-                >
-                  {topic.options.map((option) => (
-                    <button
-                      key={option.text}
-                      type="button"
-                      className={cx(quietButton, smallButton, "rounded-full")}
-                      disabled={blocked || !!messages.at(-1)?.me}
-                      onClick={() => send(option.text, option.reply)}
-                    >
-                      {option.text}
-                    </button>
-                  ))}
-                </div>
-                <form
-                  className="mt-3 flex shrink-0 gap-2"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    send(input);
-                  }}
-                >
-                  <input
-                    className={cx(field, "flex-1")}
-                    aria-label="메시지 입력"
-                    placeholder={`${student.short}에게 메시지 보내기`}
-                    maxLength={2000}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                  />
-                  {busy === room ? (
+                {roomAI && (ai.enabled || memories.length > 0) && (
+                  <button
+                    type="button"
+                    className={cx(
+                      iconButton,
+                      "relative aria-pressed:bg-selected aria-pressed:text-blue",
+                    )}
+                    aria-label={`${student.short}의 기억 ${activeMemories}개`}
+                    title="기억"
+                    aria-pressed={panel === "memory"}
+                    onClick={() =>
+                      setPanel(panel === "memory" ? "chat" : "memory")
+                    }
+                  >
+                    <Icon name="book" />
+                    {activeMemories > 0 && (
+                      <span
+                        className="absolute top-0.5 right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-blue px-0.5 numeric text-[9px]/none text-white"
+                        aria-hidden="true"
+                      >
+                        {activeMemories}
+                      </span>
+                    )}
+                  </button>
+                )}
+              </header>
+              {panel === "profile" ? (
+                <div className="flex-1 scroll-thin overflow-y-auto">
+                  <Profile student={student}>
+                    {roomAI && (
+                      <AIBadge
+                        enabled={ai.enabled}
+                        onSettings={() => setSettings(true)}
+                      />
+                    )}
+                  </Profile>
+                  <div className="flex flex-wrap items-center gap-2 border-t border-line-soft px-5 pt-4 pb-5">
                     <button
                       type="button"
                       className={quietButton}
-                      onClick={stop}
+                      onClick={() => setPanel("chat")}
                     >
-                      <Icon name="stop" />
-                      중단
+                      대화로 돌아가기
                     </button>
-                  ) : (
-                    <button
-                      className={primaryButton}
-                      type="submit"
-                      disabled={
-                        blocked || !!messages.at(-1)?.me || !input.trim()
-                      }
+                    <ConfirmButton
+                      className="ml-auto"
+                      confirm="이 대화와 기억을 지울까요?"
+                      disabled={!chat.store || !!busy}
+                      onConfirm={() => {
+                        const store = chat.store;
+                        if (!store) return;
+                        void store
+                          .deleteRoom(room)
+                          .then(changed)
+                          .then(leaveRoom)
+                          .catch((cause: unknown) =>
+                            setNote({ tone: "danger", text: messageOf(cause) }),
+                          );
+                      }}
                     >
-                      전송
-                    </button>
-                  )}
-                </form>
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="flex shrink-0 items-center gap-3 border-b border-line pb-3 max-xs:flex-wrap">
-              <nav
-                className="flex shrink-0 gap-2"
-                aria-label="모모톡 보기 전환"
-              >
-                <button
-                  type="button"
-                  className={pane === "friends" ? primaryButton : quietButton}
-                  aria-pressed={pane === "friends"}
-                  onClick={() => setPane("friends")}
-                >
-                  친구
-                </button>
-                <button
-                  type="button"
-                  className={pane === "chat" ? primaryButton : quietButton}
-                  aria-pressed={pane === "chat"}
-                  onClick={() => setPane("chat")}
-                >
-                  채팅{total > 0 ? ` · ${total}` : ""}
-                </button>
-              </nav>
-              {pane === "friends" ? (
-                <div
-                  className="ml-auto flex h-10 w-[min(100%,320px)] min-w-0 items-center gap-[7px] rounded-lg border border-control bg-surface pr-2 pl-2.5 text-muted transition-colors focus-within:border-accent focus-within:text-blue focus-within:shadow-ring max-sm:w-auto max-sm:flex-1"
-                  role="search"
-                >
-                  <Icon name="search" className="size-4" />
-                  <input
-                    type="search"
-                    aria-label="학생 검색"
-                    placeholder="이름·학교·동아리"
-                    className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-subtle focus-visible:outline-0"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
+                      <Icon name="trash" />
+                      대화 지우기
+                    </ConfirmButton>
+                  </div>
                 </div>
+              ) : panel === "memory" ? (
+                <MemoryPanel
+                  student={student}
+                  store={chat.store}
+                  memories={memories}
+                  busy={!!busy}
+                  onChange={changed}
+                />
               ) : (
-                <div
-                  className="ml-auto flex gap-1 rounded-lg bg-surface-2 p-1"
-                  role="group"
-                  aria-label="대화 목록 필터"
-                >
-                  {[false, true].map((value) => (
-                    <button
-                      key={String(value)}
-                      type="button"
-                      aria-pressed={onlyUnread === value}
-                      onClick={() => setOnlyUnread(value)}
-                      className="rounded-[8px] border border-transparent px-3 py-1 text-sm font-semibold whitespace-nowrap text-muted transition-colors hover:text-ink aria-pressed:border-control aria-pressed:bg-surface aria-pressed:text-ink"
-                    >
-                      {value
-                        ? `읽지 않음${total > 0 ? ` · ${total}` : ""}`
-                        : "전체"}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {pane === "friends" ? (
-              <>
-                {loadError && (
-                  <Notice
-                    tone="danger"
-                    className="mt-3 shrink-0"
-                    action={
+                <>
+                  <div
+                    role="log"
+                    aria-label={`${student.short}와의 대화`}
+                    aria-live="polite"
+                    className="flex min-h-0 flex-1 scroll-thin flex-col gap-4 overflow-y-auto bg-surface-2 p-4 max-sm:px-2"
+                  >
+                    {!chat.ready && !chat.error && (
+                      <p role="status" className="m-auto text-sm text-muted">
+                        대화를 불러오는 중이에요…
+                      </p>
+                    )}
+                    {chat.store?.cached(room)?.hasMore && (
                       <button
                         type="button"
-                        className={cx(quietButton, smallButton, "min-h-8!")}
-                        onClick={() => setAttempt(attempt + 1)}
+                        className={cx(
+                          quietButton,
+                          smallButton,
+                          "self-center rounded-full",
+                        )}
+                        onClick={() => {
+                          const store = chat.transcript.current;
+                          if (store) {
+                            paging.current = true;
+                            void store
+                              .loadOlder(room)
+                              .then(chat.update)
+                              .catch((cause: unknown) =>
+                                setNote({
+                                  tone: "danger",
+                                  text: messageOf(cause),
+                                }),
+                              );
+                          }
+                        }}
                       >
-                        다시 시도
+                        이전 대화 더 보기
                       </button>
-                    }
-                  >
-                    학생 목록을 불러오지 못했어요.
-                  </Notice>
-                )}
-                <div className="mt-2 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-sm:grid-cols-1">
-                  <div
-                    className={cx(
-                      "scroll-thin overflow-y-auto",
-                      profile && "max-sm:hidden",
                     )}
-                    aria-label="학생 목록"
-                  >
-                    {hits.length ? (
-                      hits.map((s) => (
+                    {messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={cx(
+                          "group flex items-start gap-2",
+                          message.me && "flex-row-reverse",
+                        )}
+                      >
+                        {!message.me && <Avatar student={student} />}
                         <div
-                          key={s.id}
                           className={cx(
-                            "flex items-center border-b border-line-soft transition-colors hover:bg-hover",
-                            selected === s.id &&
-                              "bg-selected hover:bg-selected",
+                            "flex max-w-[80%] flex-col",
+                            message.me && "items-end",
                           )}
                         >
+                          {!message.me && (
+                            <p className="mb-1 text-xs font-semibold">
+                              {student.short}
+                            </p>
+                          )}
+                          <p
+                            className={cx(
+                              "rounded-lg px-3 py-2 text-sm/relaxed wrap-anywhere whitespace-pre-wrap",
+                              message.me
+                                ? "bg-blue text-white"
+                                : "border border-line bg-surface",
+                            )}
+                          >
+                            {message.text}
+                          </p>
+                          <div
+                            className={cx(
+                              "mt-1 flex min-h-5 items-center gap-2 text-2xs text-muted",
+                              message.me && "flex-row-reverse",
+                            )}
+                          >
+                            <time>{message.time}</time>
+                            {message.sourceKind === "model-output" && (
+                              <span
+                                className="inline-flex items-center gap-0.5 font-semibold text-blue [&_.icon]:size-3"
+                                title="기기 안 AI가 만든 답장"
+                              >
+                                <Icon name="sparkle" />
+                                AI
+                              </span>
+                            )}
+                            {roomAI &&
+                              (remembered.has(message.id) ? (
+                                <span className="inline-flex items-center gap-0.5 font-semibold text-bookmark [&_.icon]:size-3">
+                                  <Icon name="check" />
+                                  기억함
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="rounded-sm px-1 font-semibold opacity-0 transition-opacity group-hover:opacity-100 hover:text-blue focus-visible:opacity-100 pointer-coarse:opacity-100"
+                                  disabled={blocked}
+                                  onClick={() =>
+                                    remember(message.id, message.text)
+                                  }
+                                >
+                                  기억하기
+                                </button>
+                              ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {busy === room && (
+                      <div className="flex items-start gap-2" role="status">
+                        <Avatar student={student} />
+                        <div className="flex max-w-[80%] flex-col">
+                          <p className="mb-1 text-xs font-semibold">
+                            {student.short}
+                          </p>
+                          <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm/relaxed wrap-anywhere whitespace-pre-wrap">
+                            {stream || (
+                              <span
+                                className="typing inline-flex h-[1lh] items-center gap-1"
+                                aria-label={`${student.short} 입력 중`}
+                              >
+                                <span />
+                                <span />
+                                <span />
+                              </span>
+                            )}
+                          </p>
+                          <span className="mt-1 text-2xs text-muted">
+                            {ai.loading
+                              ? `모델 준비 중 ${Math.round(ai.progress * 100)}%`
+                              : context && `${context} 참고 중`}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={messagesEnd} />
+                  </div>
+                  {messages.length > 0 &&
+                    messages.at(-1)?.id !==
+                      chat.summaries.find((entry) => entry.roomId === room)
+                        ?.last.id && (
+                      <button
+                        type="button"
+                        className={cx(
+                          primaryButton,
+                          smallButton,
+                          "relative z-10 -mt-12 mb-3 self-center rounded-full shadow-pop",
+                        )}
+                        onClick={() => void chat.load(room)}
+                      >
+                        <Icon name="chevron" className="rotate-90" />
+                        최신 대화로
+                      </button>
+                    )}
+                  {(note || retryable) && (
+                    <Notice
+                      tone={note?.tone ?? "warn"}
+                      icon={note?.tone === "info" ? "check" : "info"}
+                      className="mt-3 shrink-0"
+                      action={
+                        note?.settings
+                          ? settingsButton
+                          : retryable && note?.tone !== "info"
+                            ? retryButton
+                            : undefined
+                      }
+                      onDismiss={note ? () => setNote(null) : undefined}
+                    >
+                      {note?.text ?? `${student.short}의 답장을 받지 못했어요.`}
+                    </Notice>
+                  )}
+                  <div
+                    className="flex shrink-0 flex-wrap justify-end gap-2 pt-3"
+                    aria-label="답장 선택"
+                  >
+                    {topic.options.map((option) => (
+                      <button
+                        key={option.text}
+                        type="button"
+                        className={cx(quietButton, smallButton, "rounded-full")}
+                        disabled={blocked || !!messages.at(-1)?.me}
+                        onClick={() => send(option.text, option.reply)}
+                      >
+                        {option.text}
+                      </button>
+                    ))}
+                  </div>
+                  <form
+                    className="mt-3 flex shrink-0 gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      send(input);
+                    }}
+                  >
+                    <input
+                      className={cx(field, "flex-1")}
+                      aria-label="메시지 입력"
+                      placeholder={`${student.short}에게 메시지 보내기`}
+                      maxLength={2000}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                    />
+                    {busy === room ? (
+                      <button
+                        type="button"
+                        className={quietButton}
+                        onClick={stop}
+                      >
+                        <Icon name="stop" />
+                        중단
+                      </button>
+                    ) : (
+                      <button
+                        className={primaryButton}
+                        type="submit"
+                        disabled={
+                          blocked || !!messages.at(-1)?.me || !input.trim()
+                        }
+                      >
+                        전송
+                      </button>
+                    )}
+                  </form>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex shrink-0 items-center gap-3 border-b border-line pb-3 max-xs:flex-wrap">
+                <nav
+                  className="flex shrink-0 gap-2"
+                  aria-label="모모톡 보기 전환"
+                >
+                  <button
+                    type="button"
+                    className={pane === "friends" ? primaryButton : quietButton}
+                    aria-pressed={pane === "friends"}
+                    onClick={() => setPane("friends")}
+                  >
+                    친구
+                  </button>
+                  <button
+                    type="button"
+                    className={pane === "chat" ? primaryButton : quietButton}
+                    aria-pressed={pane === "chat"}
+                    onClick={() => setPane("chat")}
+                  >
+                    채팅{total > 0 ? ` · ${total}` : ""}
+                  </button>
+                </nav>
+                {pane === "friends" ? (
+                  <div
+                    className="ml-auto flex h-10 w-[min(100%,320px)] min-w-0 items-center gap-[7px] rounded-lg border border-control bg-surface pr-2 pl-2.5 text-muted transition-colors focus-within:border-accent focus-within:text-blue focus-within:shadow-ring max-sm:w-auto max-sm:flex-1"
+                    role="search"
+                  >
+                    <Icon name="search" className="size-4" />
+                    <input
+                      type="search"
+                      aria-label="학생 검색"
+                      placeholder="이름·학교·동아리"
+                      className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-subtle focus-visible:outline-0"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="ml-auto flex gap-1 rounded-lg bg-surface-2 p-1"
+                    role="group"
+                    aria-label="대화 목록 필터"
+                  >
+                    {[false, true].map((value) => (
+                      <button
+                        key={String(value)}
+                        type="button"
+                        aria-pressed={onlyUnread === value}
+                        onClick={() => setOnlyUnread(value)}
+                        className="rounded-[8px] border border-transparent px-3 py-1 text-sm font-semibold whitespace-nowrap text-muted transition-colors hover:text-ink aria-pressed:border-control aria-pressed:bg-surface aria-pressed:text-ink"
+                      >
+                        {value
+                          ? `읽지 않음${total > 0 ? ` · ${total}` : ""}`
+                          : "전체"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {pane === "friends" ? (
+                <>
+                  {loadError && (
+                    <Notice
+                      tone="danger"
+                      className="mt-3 shrink-0"
+                      action={
+                        <button
+                          type="button"
+                          className={cx(quietButton, smallButton, "min-h-8!")}
+                          onClick={() => setAttempt(attempt + 1)}
+                        >
+                          다시 시도
+                        </button>
+                      }
+                    >
+                      학생 목록을 불러오지 못했어요.
+                    </Notice>
+                  )}
+                  <div className="mt-2 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-sm:grid-cols-1">
+                    <div
+                      className={cx(
+                        "scroll-thin overflow-y-auto",
+                        profile && "max-sm:hidden",
+                      )}
+                      aria-label="학생 목록"
+                    >
+                      {hits.length ? (
+                        hits.map((s) => (
+                          <div
+                            key={s.id}
+                            className={cx(
+                              "flex items-center border-b border-line-soft transition-colors hover:bg-hover",
+                              selected === s.id &&
+                                "bg-selected hover:bg-selected",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              className="flex min-w-0 flex-1 items-center gap-3 px-2 py-3 text-left"
+                              onClick={() => {
+                                setSelected(s.id);
+                                setProfile(true);
+                              }}
+                              aria-pressed={selected === s.id}
+                            >
+                              <Avatar student={s} />
+                              <span className="min-w-0">
+                                <strong className="flex items-center gap-1.5 text-sm">
+                                  {s.short}
+                                  {ai.enabled && momoSupportsAI(s.id) && (
+                                    <Icon
+                                      name="sparkle"
+                                      className="size-3.5 text-accent"
+                                    />
+                                  )}
+                                </strong>
+                                <small className="block truncate text-xs text-muted">
+                                  {s.school} · {s.club || s.status}
+                                </small>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className={iconButton}
+                              aria-label={`${s.short} 즐겨찾기`}
+                              aria-pressed={favorites.includes(s.id)}
+                              onClick={() =>
+                                setFavorites((current) =>
+                                  current.includes(s.id)
+                                    ? current.filter((id) => id !== s.id)
+                                    : [...current, s.id],
+                                )
+                              }
+                            >
+                              <Icon
+                                name="bookmark"
+                                filled={favorites.includes(s.id)}
+                              />
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="p-5 text-sm text-muted">
+                          검색 결과가 없어요.
+                        </p>
+                      )}
+                    </div>
+                    <aside
+                      className={cx(
+                        "scroll-thin overflow-y-auto border-l border-line max-sm:border-l-0",
+                        !profile && "max-sm:hidden",
+                      )}
+                      aria-label="선택한 학생 프로필"
+                    >
+                      <Profile student={student}>
+                        {momoSupportsAI(student.id) && (
+                          <AIBadge
+                            enabled={ai.enabled}
+                            onSettings={() => setSettings(true)}
+                          />
+                        )}
+                      </Profile>
+                      <div className="px-5 pb-5">
+                        <button
+                          type="button"
+                          className={primaryButton}
+                          disabled={!chat.ready || !!chat.error}
+                          onClick={() => openRoom(student.id)}
+                        >
+                          대화 시작
+                        </button>
+                        <button
+                          type="button"
+                          className={cx(quietButton, "mt-2 ml-2 sm:hidden")}
+                          onClick={() => setProfile(false)}
+                        >
+                          목록으로
+                        </button>
+                      </div>
+                    </aside>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mt-1 min-h-0 flex-1 scroll-thin overflow-y-auto">
+                    {chatIds.length ? (
+                      chatIds.map((id) => {
+                        const s = students.find((s) => s.id === id) ?? {
+                          ...ARONA,
+                          id,
+                          short: id,
+                        };
+                        const last = chat.summaries.find(
+                          (entry) => entry.roomId === id,
+                        )!.last;
+                        return (
                           <button
+                            key={id}
                             type="button"
-                            className="flex min-w-0 flex-1 items-center gap-3 px-2 py-3 text-left"
-                            onClick={() => {
-                              setSelected(s.id);
-                              setProfile(true);
-                            }}
-                            aria-pressed={selected === s.id}
+                            className="flex w-full items-center gap-3 border-b border-line-soft py-3 text-left hover:bg-hover"
+                            onClick={() => openRoom(id)}
                           >
                             <Avatar student={s} />
-                            <span className="min-w-0">
-                              <strong className="flex items-center gap-1.5 text-sm">
+                            <span className="min-w-0 flex-1">
+                              <strong className="block text-sm">
                                 {s.short}
-                                {ai.enabled && momoSupportsAI(s.id) && (
-                                  <Icon
-                                    name="sparkle"
-                                    className="size-3.5 text-accent"
-                                  />
-                                )}
                               </strong>
-                              <small className="block truncate text-xs text-muted">
-                                {s.school} · {s.club || s.status}
-                              </small>
+                              <span className="block truncate text-xs text-muted">
+                                {last.text}
+                              </span>
+                            </span>
+                            <span className="text-xs text-muted">
+                              {last.time}
+                              {!!unread[id] && (
+                                <span className="ml-2 rounded-full bg-blue px-2 text-white">
+                                  {unread[id]}
+                                </span>
+                              )}
                             </span>
                           </button>
-                          <button
-                            type="button"
-                            className={iconButton}
-                            aria-label={`${s.short} 즐겨찾기`}
-                            aria-pressed={favorites.includes(s.id)}
-                            onClick={() =>
-                              setFavorites((current) =>
-                                current.includes(s.id)
-                                  ? current.filter((id) => id !== s.id)
-                                  : [...current, s.id],
-                              )
-                            }
-                          >
-                            <Icon
-                              name="bookmark"
-                              filled={favorites.includes(s.id)}
-                            />
-                          </button>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
-                      <p className="p-5 text-sm text-muted">
-                        검색 결과가 없어요.
+                      <p className="py-8 text-center text-sm text-muted">
+                        {!chat.ready && !chat.error
+                          ? "대화를 불러오는 중이에요…"
+                          : onlyUnread
+                            ? "읽지 않은 대화가 없어요."
+                            : "친구 탭에서 학생을 골라 대화를 시작해 보세요."}
                       </p>
                     )}
                   </div>
-                  <aside
-                    className={cx(
-                      "scroll-thin overflow-y-auto border-l border-line max-sm:border-l-0",
-                      !profile && "max-sm:hidden",
-                    )}
-                    aria-label="선택한 학생 프로필"
-                  >
-                    <Profile student={student}>
-                      {momoSupportsAI(student.id) && (
-                        <AIBadge
-                          enabled={ai.enabled}
-                          onSettings={() => setSettings(true)}
-                        />
-                      )}
-                    </Profile>
-                    <div className="px-5 pb-5">
-                      <button
-                        type="button"
-                        className={primaryButton}
-                        disabled={!chat.ready || !!chat.error}
-                        onClick={() => openRoom(student.id)}
-                      >
-                        대화 시작
-                      </button>
-                      <button
-                        type="button"
-                        className={cx(quietButton, "mt-2 ml-2 sm:hidden")}
-                        onClick={() => setProfile(false)}
-                      >
-                        목록으로
-                      </button>
-                    </div>
-                  </aside>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="mt-1 min-h-0 flex-1 scroll-thin overflow-y-auto">
-                  {chatIds.length ? (
-                    chatIds.map((id) => {
-                      const s = students.find((s) => s.id === id) ?? {
-                        ...ARONA,
-                        id,
-                        short: id,
-                      };
-                      const last = chat.summaries.find(
-                        (entry) => entry.roomId === id,
-                      )!.last;
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          className="flex w-full items-center gap-3 border-b border-line-soft py-3 text-left hover:bg-hover"
-                          onClick={() => openRoom(id)}
-                        >
-                          <Avatar student={s} />
-                          <span className="min-w-0 flex-1">
-                            <strong className="block text-sm">{s.short}</strong>
-                            <span className="block truncate text-xs text-muted">
-                              {last.text}
-                            </span>
-                          </span>
-                          <span className="text-xs text-muted">
-                            {last.time}
-                            {!!unread[id] && (
-                              <span className="ml-2 rounded-full bg-blue px-2 text-white">
-                                {unread[id]}
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <p className="py-8 text-center text-sm text-muted">
-                      {!chat.ready && !chat.error
-                        ? "대화를 불러오는 중이에요…"
-                        : onlyUnread
-                          ? "읽지 않은 대화가 없어요."
-                          : "친구 탭에서 학생을 골라 대화를 시작해 보세요."}
-                    </p>
-                  )}
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
-    </Dialog>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </Dialog>
+      <Dialog
+        open={settings}
+        onClose={() => setSettings(false)}
+        label="MOLU 설정"
+        labelledBy="settings-title"
+        icon="settings"
+        className="w-[min(720px,calc(100vw-24px))]"
+      >
+        <h2 id="settings-title" className="sr-only">
+          MOLU 설정
+        </h2>
+        {storageNotice}
+        <p className="mb-5 text-sm text-muted">
+          달력, 모모톡, AI와 저장 데이터를 한곳에서 관리해요.
+        </p>
+        <div className="flex flex-col gap-7">
+          {settingsContent}
+          <section aria-labelledby="momotalk-settings">
+            <h3
+              id="momotalk-settings"
+              className="mb-2.5 flex items-center gap-2 text-md font-semibold text-ink [&_.icon]:size-4 [&_.icon]:text-blue"
+            >
+              <Icon name="chat" />
+              모모톡
+            </h3>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3.5 py-3">
+              <strong className="text-md text-ink">알림음</strong>
+              <Switch
+                label="모모톡 알림음"
+                checked={sound}
+                onChange={setSound}
+              />
+            </div>
+          </section>
+          <MomoSettings
+            store={chat.store}
+            students={students}
+            busy={!!busy}
+            onChange={changed}
+          />
+        </div>
+      </Dialog>
+    </>
   );
 }

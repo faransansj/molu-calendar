@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ChatTranscript, Memory } from "../lib/chat/transcript.ts";
 import { filterMemories } from "../lib/chat/memory.ts";
 import { cx } from "../lib/cx.ts";
-import type { Student } from "../lib/chat/replies.ts";
+import type { Student } from "../lib/chat/students.ts";
 import { Icon } from "./Icon.tsx";
 import {
   Notice,

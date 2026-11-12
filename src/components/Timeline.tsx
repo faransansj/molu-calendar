@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
-import { useCalendar, usePersistentState } from "../hooks/calendar.ts";
+import { useCalendar } from "../hooks/calendar.ts";
 import {
   CATEGORIES,
   STATUSES,
@@ -17,16 +17,11 @@ import {
 } from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
 import type { Category } from "../lib/calendar/feed.ts";
-import { CATEGORY_KEYS } from "../lib/calendar/feed.ts";
 import { layoutTimeline } from "../lib/calendar/timeline.ts";
 import type { TimelineItem } from "../lib/calendar/timeline.ts";
 import { Empty } from "./Agenda.tsx";
 import { Icon } from "./Icon.tsx";
 import { Count, Countdown, Diamond, categoryStyle } from "./ui.tsx";
-
-const isCategoryList = (value: unknown): value is Category[] =>
-  Array.isArray(value) &&
-  value.every((item) => (CATEGORY_KEYS as readonly unknown[]).includes(item));
 
 function prefix(
   item: TimelineItem,
@@ -73,7 +68,13 @@ const dayTone = (day: string, today: string, selected: string) => {
   );
 };
 
-export function Timeline() {
+export function Timeline({
+  folded,
+  toggle,
+}: {
+  folded: Category[];
+  toggle: (category: Category) => void;
+}) {
   const {
     events,
     month,
@@ -89,11 +90,6 @@ export function Timeline() {
   const { days, groups } = useMemo(
     () => layoutTimeline(events, month),
     [events, month],
-  );
-  const [folded, setFolded] = usePersistentState<Category[]>(
-    "molu.timeline.folded.v1",
-    [],
-    isCategoryList,
   );
   const [hover, setHover] = useState<{
     item: TimelineItem;
@@ -168,12 +164,6 @@ export function Timeline() {
   }, [flash, month]);
 
   const hovered = hover ? span(hover.item.event) : null;
-  const toggle = (category: Category) =>
-    setFolded((current) =>
-      current.includes(category)
-        ? current.filter((item) => item !== category)
-        : [...current, category],
-    );
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const day = (event.target as HTMLElement).dataset.date;

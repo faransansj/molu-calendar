@@ -1,6 +1,70 @@
-import { dice, grams, words } from "./replies.ts";
+import { EXCERPT_LIMITS } from "../ai/persona.ts";
 
 import type { Memory, Reference, MemoryDraft } from "./types.ts";
+
+const PARTICLES = [
+  "한테",
+  "에서",
+  "으로",
+  "라고",
+  "라는",
+  "부터",
+  "까지",
+  "처럼",
+  "보다",
+  "마다",
+  "조차",
+  "은",
+  "는",
+  "이",
+  "가",
+  "을",
+  "를",
+  "에",
+  "로",
+  "와",
+  "과",
+  "도",
+  "만",
+  "의",
+  "야",
+  "여",
+];
+const segmenter =
+  typeof Intl !== "undefined" && Intl.Segmenter
+    ? new Intl.Segmenter("ko", { granularity: "word" })
+    : null;
+
+function stripParticle(token: string) {
+  for (const particle of PARTICLES) {
+    if (token.length > particle.length && token.endsWith(particle))
+      return token.slice(0, -particle.length);
+  }
+  return token;
+}
+function words(text: string) {
+  const base = segmenter
+    ? [...segmenter.segment(text)]
+        .filter((s) => s.isWordLike)
+        .map((s) => s.segment.toLowerCase())
+    : [];
+  return base.map(stripParticle).filter(Boolean);
+}
+function grams(text: string) {
+  const bare = text.toLowerCase().replace(/\s+/g, "");
+  const out = new Set<string>();
+  if (bare.length < 2) {
+    if (bare) out.add(bare);
+    return out;
+  }
+  for (let i = 0; i < bare.length - 1; i++) out.add(bare.slice(i, i + 2));
+  return out;
+}
+function dice(a: Set<string>, b: Set<string>) {
+  let hit = 0;
+  for (const token of a) if (b.has(token)) hit++;
+  return (2 * hit) / (a.size + b.size || 1);
+}
 
 export const MEMORY_LIMIT = 5;
 export const MEMORY_CHAR_BUDGET = 1_200;
@@ -154,8 +218,8 @@ export function selectExcerpts(
   {
     currentId = null,
     recentIds = [],
-    itemChars = 500,
-    maxChars = 800,
+    itemChars = EXCERPT_LIMITS.itemChars,
+    maxChars = EXCERPT_LIMITS.chars,
   }: {
     currentId?: string | null;
     recentIds?: string[];
@@ -168,6 +232,7 @@ export function selectExcerpts(
   const chosen = [];
   let used = 0;
   for (const hit of hits) {
+    if (chosen.length >= EXCERPT_LIMITS.items) break;
     const message = "message" in hit ? hit.message : hit;
     if (!message || typeof message.text !== "string" || seen.has(message.id))
       continue;

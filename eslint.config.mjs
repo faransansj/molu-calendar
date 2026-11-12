@@ -15,6 +15,7 @@ export default [
       "reference/",
       "training/lora/runs/",
       "**/.*/",
+      "src/server/worker-configuration.d.ts",
     ],
   },
   js.configs.recommended,

@@ -4,13 +4,12 @@ import type { ChatTranscript } from "../lib/chat/transcript.ts";
 import { momoSupportsAI } from "../lib/chat/prompt.ts";
 import { MODEL, useLocalAI } from "../hooks/useLocalAI.ts";
 import { cx } from "../lib/cx.ts";
-import type { Student } from "../lib/chat/replies.ts";
+import type { Student } from "../lib/chat/students.ts";
 import { sitePath } from "../lib/urls.ts";
 import { Icon } from "./Icon.tsx";
 import {
   ConfirmButton,
   Notice,
-  Switch,
   primaryButton,
   quietButton,
   smallButton,
@@ -98,17 +97,9 @@ function AISection({ students }: { students: Student[] }) {
       </h4>
       <div className={card}>
         <Row
-          title="학생이 직접 답장하기"
-          detail="지원하는 학생은 기기 안의 AI로 대화해요. 일정 질문에는 계속 정확한 일정으로 답해요."
-        >
-          <Switch
-            label="AI 답장 사용"
-            checked={ai.enabled}
-            onChange={(next) => {
-              if (!ai.setEnabled(next)) setError("설정을 저장하지 못했어요.");
-            }}
-          />
-        </Row>
+          title="모든 대화는 기기 안 AI로 답해요"
+          detail="일정 질문을 포함한 모든 메시지가 이 기기의 모델로 생성돼요. 아직 지원하지 않는 학생과는 대화를 시작할 수 없어요."
+        />
         {supported.length > 0 && (
           <div className="flex items-center gap-3 px-3.5 py-2.5">
             <span className="flex shrink-0 -space-x-2" aria-hidden="true">
@@ -130,56 +121,54 @@ function AISection({ students }: { students: Student[] }) {
                 .slice(0, 3)
                 .map((s) => s.short)
                 .join(", ")}{" "}
-              외 {supported.length - 3}명 지원
+              {supported.length > 3 ? `외 ${supported.length - 3}명 ` : ""}지원
             </span>
           </div>
         )}
-        {ai.enabled && (
-          <div className="flex flex-col gap-2.5 px-3.5 py-3">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-blue [&_.icon]:size-[18px]">
-                <Icon name={ai.ready ? "check" : "download"} />
+        <div className="flex flex-col gap-2.5 px-3.5 py-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-blue [&_.icon]:size-[18px]">
+              <Icon name={ai.ready ? "check" : "download"} />
+            </span>
+            <div className="flex min-w-[min(100%,200px)] flex-1 flex-col gap-0.5">
+              <strong className="text-md text-ink">{MODEL.name}</strong>
+              <span
+                className={cx(
+                  "text-xs/[1.55] wrap-anywhere",
+                  ai.ready ? "text-blue-strong" : "text-muted",
+                )}
+                aria-live="polite"
+              >
+                {status}
               </span>
-              <div className="flex min-w-[min(100%,200px)] flex-1 flex-col gap-0.5">
-                <strong className="text-md text-ink">{MODEL.name}</strong>
-                <span
-                  className={cx(
-                    "text-xs/[1.55] wrap-anywhere",
-                    ai.ready ? "text-blue-strong" : "text-muted",
-                  )}
-                  aria-live="polite"
-                >
-                  {status}
-                </span>
-              </div>
-              {ai.loading ? (
+            </div>
+            {ai.loading ? (
+              <button
+                type="button"
+                className={cx(quietButton, smallButton)}
+                onClick={ai.cancel}
+              >
+                <Icon name="stop" />
+                중단
+              </button>
+            ) : (
+              !ai.ready && (
                 <button
                   type="button"
-                  className={cx(quietButton, smallButton)}
-                  onClick={ai.cancel}
+                  className={cx(primaryButton, smallButton)}
+                  disabled={ai.busy}
+                  onClick={() => run(ai.prepare)}
                 >
-                  <Icon name="stop" />
-                  중단
+                  <Icon name={ai.cached ? "sparkle" : "download"} />
+                  {ai.cached ? "지금 불러오기" : "모델 받기"}
                 </button>
-              ) : (
-                !ai.ready && (
-                  <button
-                    type="button"
-                    className={cx(primaryButton, smallButton)}
-                    disabled={ai.busy}
-                    onClick={() => run(ai.prepare)}
-                  >
-                    <Icon name={ai.cached ? "sparkle" : "download"} />
-                    {ai.cached ? "지금 불러오기" : "모델 받기"}
-                  </button>
-                )
-              )}
-            </div>
-            {ai.loading && (
-              <Meter value={ai.progress} label={`${MODEL.name} 준비`} />
+              )
             )}
           </div>
-        )}
+          {ai.loading && (
+            <Meter value={ai.progress} label={`${MODEL.name} 준비`} />
+          )}
+        </div>
       </div>
       {error && (
         <Notice tone="danger" className="mt-2.5" onDismiss={() => setError("")}>
@@ -191,7 +180,7 @@ function AISection({ students }: { students: Student[] }) {
         Chrome·Edge가 필요하고, 탭을 숨기면 메모리를 비우기 위해 모델을 내려
         놓아요. AI 답장은 직접 기억하기를 누르기 전까지 기억에 남지 않아요.
       </p>
-      {ai.cached && !ai.loading && (
+      {(ai.cached || ai.cacheWriteFailed) && !ai.loading && (
         <ConfirmButton
           className="mt-2.5"
           confirm={`받아 둔 ${MODEL.name}를 지울까요?`}

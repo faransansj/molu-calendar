@@ -16,7 +16,6 @@ import type {
 
 interface Settings {
   modelId: string;
-  momoEnabled: boolean;
   catalogVersion?: string;
 }
 interface Job {
@@ -51,14 +50,13 @@ export class LocalAISession extends EventTarget {
         ? (raw as Record<string, unknown>)
         : {};
     this.settings = {
-      ...settings,
       modelId:
         settings.catalogVersion === MODEL_CATALOG_VERSION &&
         typeof settings.modelId === "string" &&
         modelById(settings.modelId)
           ? settings.modelId
           : DEFAULT_MODEL_ID,
-      momoEnabled: settings.momoEnabled === true,
+      catalogVersion: MODEL_CATALOG_VERSION,
     };
   }
   get owner() {
@@ -73,29 +71,11 @@ export class LocalAISession extends EventTarget {
   get modelId() {
     return this.settings.modelId;
   }
-  get momoEnabled() {
-    return this.settings.momoEnabled;
-  }
   get ready() {
     return this.loaded === this.modelId;
   }
   notify() {
     this.dispatchEvent(new Event("change"));
-  }
-  save(patch: Partial<Settings>) {
-    this.settings = {
-      ...this.settings,
-      ...patch,
-      catalogVersion: MODEL_CATALOG_VERSION,
-    };
-    let saved = !!this.storage;
-    try {
-      this.storage?.setItem(AI_SETTINGS_KEY, JSON.stringify(this.settings));
-    } catch {
-      saved = false;
-    }
-    this.notify();
-    return saved;
   }
   async run<T>(
     owner: string,

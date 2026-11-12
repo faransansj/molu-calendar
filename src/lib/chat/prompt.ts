@@ -1,19 +1,5 @@
 import { personaById } from "../ai/persona.ts";
 
-// replies.ts scheduleReply resolves these tokens against the live calendar.
-import { MOMO_KB, MOMO_QUERIES } from "./replies.ts";
-export {
-  MOMO_QUERIES,
-  MOMO_TOPICS,
-  MOMO_FALLBACK,
-  MOMO_KB,
-  momoTopicsFor,
-  momoReply,
-  stripParticle,
-  words,
-  grams,
-  dice,
-} from "./replies.ts";
 import type { Reference, PromptHistory, ConversationMessage } from "./types.ts";
 export const momoSupportsAI = (id: string) => !!personaById(id);
 
@@ -136,18 +122,4 @@ export function momoPromptPlan({
     droppedTurns: pairs.length - kept.length,
     fits: available > 0,
   };
-}
-
-// Local AI only intercepts explicit calendar phrases; fuzzy matches must not swallow character chat.
-export function momoCalendarQuery(text: string) {
-  if (!/오늘|내일/.test(text)) return null;
-  const normalize = (value: string) =>
-    value.toLowerCase().replace(/[\s?!.,！？。]/g, "");
-  const reply = MOMO_KB.find(
-    (entry) =>
-      typeof entry.reply === "string" &&
-      MOMO_QUERIES.includes(entry.reply) &&
-      entry.q.some((phrase) => normalize(phrase) === normalize(text)),
-  )?.reply;
-  return typeof reply === "string" ? reply : null;
 }

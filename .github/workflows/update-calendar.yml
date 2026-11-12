@@ -15,8 +15,7 @@ on:
         type: string
         required: false
   push:
-    branches: [main]
-    paths-ignore: ["**.md", "reference/**"]
+    branches: [deploy]
 
 concurrency:
   group: update-calendar
@@ -24,13 +23,15 @@ concurrency:
 
 jobs:
   scrape:
-    if: github.event_name != 'push' && inputs.publication_id == ''
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/deploy' && inputs.publication_id == '')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: deploy
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -50,12 +51,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/data/events.json
           git commit -m "chore(data): refresh official schedules"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git pull --rebase origin deploy
+          git push origin HEAD:deploy
 
   deploy:
     needs: scrape
-    if: always() && !cancelled() && (needs.scrape.result == 'success' || needs.scrape.result == 'skipped')
+    if: always() && !cancelled() && (github.event_name == 'schedule' || github.ref == 'refs/heads/deploy') && (needs.scrape.result == 'success' || needs.scrape.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -67,7 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event_name == 'push' && github.sha || 'deploy' }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

@@ -68,7 +68,8 @@ distributed to other deployment targets without a live management API.
 
 ### Production configuration
 
-Deploy at the domain root; leave `SITE_BASE` unset. Wrangler auto-provisions
+Deploy at `https://molu.midori-lab.com`; leave `SITE_BASE` unset. The Worker
+custom domain is configured in `wrangler.jsonc`. Wrangler auto-provisions
 `molu-admin` (D1) and `molu-admin-images` (R2); enable R2 on the Cloudflare account.
 
 | Location                    | Required configuration                                                                              |
@@ -76,12 +77,28 @@ Deploy at the domain root; leave `SITE_BASE` unset. Wrangler auto-provisions
 | GitHub repository variables | `SITE_URL`, `ADMIN_ORIGIN` — full HTTPS origins; normally the same Worker origin                    |
 | GitHub repository secrets   | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `PUBLISH_TOKEN`                                    |
 | Worker secrets              | `ADMIN_PASSWORD_HASH`, matching `PUBLISH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY` (`owner/repo`) |
-| Optional Worker secret      | `GITHUB_REF` — dispatch branch; defaults to `main`                                                  |
+| Optional Worker secret      | `GITHUB_REF` — dispatch branch; defaults to `deploy`                                                |
 
 Use a random high-entropy `PUBLISH_TOKEN`. This authenticates build/export and
 completion callbacks; it is never sent to the browser. The Worker's fine-grained
 `GITHUB_TOKEN` needs Actions write permission on only the target repository.
 Do not confuse it with GitHub Actions' automatic token.
+
+Keep `main` as the default development branch. Merge code into `main` through a
+PR, then merge a `main` → `deploy` PR to release it. Opening or updating a PR
+runs CI, not a production deployment. Every `deploy` push runs publication
+prepare, checks, build, and Worker deployment; a `main` push does not deploy.
+Code pushes export only the currently deployed snapshot, preserving unpublished
+administrator edits.
+
+The daily 06:00 KST schedule checks out `deploy`, commits official feed updates
+there, and publishes staged content in the same workflow run. Bot feed commits
+remain a direct-push exception. Preserve the latest `deploy` official feed when
+resolving a release PR conflict. Manual Update calendar runs must target `deploy`:
+without `publication_id` they refresh the feed and publish staged content; with
+it they publish that immutable hotfix without scraping. A manual `main` run
+skips both jobs. Shared workflow concurrency serializes deployments but does not
+guarantee FIFO delivery of every queued merge.
 
 The first deployment must bootstrap the API before Actions can export it:
 

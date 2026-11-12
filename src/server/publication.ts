@@ -120,7 +120,7 @@ export async function publicationRoute(
     }
     // Check every production prerequisite before recording a queued release.
     const repository = env.GITHUB_REPOSITORY;
-    const ref = env.GITHUB_REF ?? "main";
+    const ref = env.GITHUB_REF ?? "deploy";
     if (
       !env.PUBLISH_TOKEN ||
       /\s/.test(env.PUBLISH_TOKEN) ||

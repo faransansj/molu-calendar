@@ -3,6 +3,7 @@
   "name": "molu-calendar",
   "main": "src/server/index.ts",
   "compatibility_date": "2026-10-01",
+  "routes": [{ "pattern": "molu.midori-lab.com", "custom_domain": true }],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

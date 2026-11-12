@@ -1,9 +1,7 @@
 import {
   MODELS,
-  LITERT_CACHE,
   ENGINE_NAMES,
   MODEL_CATALOG_VERSION,
-  modelURL,
   errorWithCode,
   runtimeCompatibility,
 } from "./models.ts";
@@ -51,9 +49,6 @@ export interface Environment {
   reason?: string | null;
   fingerprint?: string;
 }
-interface CacheOptions {
-  caches?: CacheStorage;
-}
 interface Pending {
   id: number;
   action: WorkerAction;
@@ -62,41 +57,9 @@ interface Pending {
   reject: (error: unknown) => void;
   onEvent: (event: AIEvent) => void;
   firstMs: number;
+  started: boolean;
   timer: ReturnType<typeof setTimeout>;
   firstTimer?: ReturnType<typeof setTimeout>;
-}
-export async function inspectModelCaches({
-  caches: cacheStorage = globalThis.caches,
-}: CacheOptions = {}) {
-  const counts = Object.fromEntries(MODELS.map((model) => [model.id, 0]));
-  const bytes = Object.fromEntries(MODELS.map((model) => [model.id, 0]));
-  if (!cacheStorage)
-    throw new Error("이 브라우저에서 모델 캐시를 사용할 수 없습니다.");
-  if (!(await cacheStorage.keys()).includes(LITERT_CACHE))
-    return { counts, bytes };
-  const cache = await cacheStorage.open(LITERT_CACHE);
-  for (const model of MODELS) {
-    const response = await cache.match(modelURL(model));
-    if (!response) continue;
-    counts[model.id] = 1;
-    const size = Number(response.headers.get("content-length"));
-    bytes[model.id] = Number.isFinite(size) ? size : 0;
-  }
-  return { counts, bytes };
-}
-export async function deleteModelCaches({
-  caches: cacheStorage = globalThis.caches,
-  modelId,
-}: CacheOptions & { modelId: string }) {
-  const model = MODELS.find((item) => item.id === modelId);
-  if (!model) throw new Error("지원하지 않는 모델입니다.");
-  if (!cacheStorage)
-    throw new Error("이 브라우저에서 모델 캐시를 사용할 수 없습니다.");
-  if ((await cacheStorage.keys()).includes(LITERT_CACHE)) {
-    const cache = await cacheStorage.open(LITERT_CACHE);
-    await cache.delete(modelURL(model));
-  }
-  return inspectModelCaches({ caches: cacheStorage });
 }
 
 export async function inspectEnvironment(
@@ -267,21 +230,24 @@ export class LocalAIClient implements AIClient {
             return;
           }
           if ("event" in data) {
-            if (data.event === "started" && pending.firstMs) {
-              clearTimeout(pending.firstTimer);
-              pending.firstTimer = setTimeout(
-                () =>
-                  this.stop(
-                    errorWithCode(
-                      "first_timeout",
-                      "첫 답변이 5초 안에 표시되지 않아 채팅 응답 기준에 미달했습니다.",
+            if (data.event === "started" && !pending.started) {
+              pending.started = true;
+              if (pending.firstMs)
+                pending.firstTimer = setTimeout(
+                  () =>
+                    this.stop(
+                      errorWithCode(
+                        "first_timeout",
+                        `첫 답변이 ${Math.ceil(pending.firstMs / 1000)}초 안에 시작되지 않았어요. 다시 시도해 주세요.`,
+                      ),
                     ),
-                  ),
-                pending.firstMs,
-              );
+                  pending.firstMs,
+                );
             }
-            if (data.event === "token" && data.text?.trim())
+            if (data.event === "token" && data.text?.trim()) {
+              pending.started = true;
               clearTimeout(pending.firstTimer);
+            }
             pending.onEvent(data);
           } else if ("done" in data) {
             this.pending = null;
@@ -292,10 +258,16 @@ export class LocalAIClient implements AIClient {
                 errorWithCode(data.error.code || "runtime", data.error.message),
               );
             else {
-              if (pending.action === "load")
-                this.loaded = pending.modelId ?? null;
               try {
-                pending.resolve(parseWorkerResult(pending.action, data.result));
+                const result = parseWorkerResult(pending.action, data.result);
+                if (pending.action === "load")
+                  this.loaded = pending.modelId ?? null;
+                else if (
+                  pending.action === "delete" &&
+                  this.loaded === pending.modelId
+                )
+                  this.loaded = null;
+                pending.resolve(result);
               } catch (error) {
                 pending.reject(error);
               }
@@ -323,7 +295,9 @@ export class LocalAIClient implements AIClient {
           this.stop(
             errorWithCode(
               timeoutCode,
-              "작업 시간 제한을 초과했습니다. 다운로드·초기화 또는 생성 상태를 확인해 주세요.",
+              action === "generate"
+                ? "답변 생성 시간이 초과됐어요. 다시 시도해 주세요."
+                : "작업 시간 제한을 초과했습니다. 다운로드·초기화 또는 생성 상태를 확인해 주세요.",
             ),
           ),
         timeoutMs,
@@ -336,6 +310,7 @@ export class LocalAIClient implements AIClient {
         reject,
         onEvent,
         firstMs,
+        started: false,
         timer,
       };
       try {

@@ -30,9 +30,10 @@ GitHub Actions refreshes schedules every Monday at 19:00 KST and deploys to GitH
 ## Chat and local AI
 
 MomoTalk saves conversations and memories in your browser, with backup/import controls.
-Optional AI runs on your device and requires a roughly 2 GB model download and
-WebGPU-capable Chrome or Edge. Enable it in chat settings; scripted chat remains
-available without AI. Back up conversations you want to keep.
+All chat replies use the on-device LLM, including schedule questions. Download the
+roughly 2 GB model in chat settings; a WebGPU-capable browser is required. Students
+without a built-in AI persona cannot start conversations. There are no scripted
+fallback replies. Back up conversations you want to keep.
 
 ## Credits
 

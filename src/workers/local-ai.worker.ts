@@ -6,8 +6,6 @@ import {
 import {
   MODEL_CONTEXT,
   LITERT_ASSET_PATH,
-  LITERT_CACHE,
-  modelURL,
   modelById,
   errorWithCode,
 } from "../lib/ai/models.ts";
@@ -17,13 +15,12 @@ import {
   normalizeExcerpts,
   referenceChars,
 } from "../lib/ai/persona.ts";
+import { inspectEnvironment } from "../lib/ai/client.ts";
 import {
-  inspectEnvironment,
   inspectModelCaches,
   deleteModelCaches,
-} from "../lib/ai/client.ts";
-
-import type { Model } from "../lib/ai/models.ts";
+  loadModelStream,
+} from "../lib/ai/model-cache.ts";
 import type { PromptMessage } from "../lib/chat/types.ts";
 import {
   parseWorkerRequest,
@@ -49,65 +46,6 @@ async function unload() {
   await engine?.delete();
   engine = null;
   loaded = null;
-}
-
-async function liteModelStream(
-  model: Model,
-  emit: (event: AIEvent["event"], value?: EventValue) => void,
-) {
-  if (!globalThis.caches)
-    throw new Error("이 브라우저에서 모델 캐시를 사용할 수 없습니다.");
-  const cache = await caches.open(LITERT_CACHE);
-  const url = modelURL(model);
-  let response = await cache.match(url);
-  if (!response) {
-    const download = await fetch(url, { credentials: "omit" });
-    if (!download.ok || !download.body)
-      throw new Error(`모델 다운로드 HTTP ${download.status}`);
-    let received = 0;
-    let reported = 0;
-    const body = download.body.pipeThrough(
-      new TransformStream({
-        transform(chunk, controller) {
-          received += chunk.byteLength;
-          if (received > model.bytes)
-            throw new Error(
-              "다운로드 모델 크기가 고정된 파일 정보와 다릅니다.",
-            );
-          if (performance.now() - reported > 200 || received === model.bytes) {
-            emit("progress", {
-              progress: received / model.bytes,
-              text: `모델 다운로드 ${(received / 1e9).toFixed(2)} / ${(model.bytes / 1e9).toFixed(2)} GB`,
-            });
-            reported = performance.now();
-          }
-          controller.enqueue(chunk);
-        },
-        flush() {
-          if (received !== model.bytes)
-            throw new Error(
-              "모델 다운로드가 완료되지 않았습니다. 다시 시도해 주세요.",
-            );
-        },
-      }),
-    );
-    // Stream directly to disk, then read the cache. clone()/tee() would buffer GBs for the slower reader.
-    await cache.put(
-      url,
-      new Response(body, {
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "Content-Length": String(model.bytes),
-        },
-      }),
-    );
-    response = await cache.match(url);
-  }
-  if (!response?.body)
-    throw new Error(
-      "저장된 모델을 읽을 수 없습니다. 캐시를 삭제하고 다시 시도해 주세요.",
-    );
-  return response.body;
 }
 
 self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
@@ -163,7 +101,7 @@ self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
           liteRuntime = await getOrLoadGlobalLiteRtLm(assetURL);
         }
         await liteRuntime.setupDefaultWebGpuDevice();
-        const stream = await liteModelStream(model, (event, value = {}) =>
+        const stream = await loadModelStream(model, (event, value = {}) =>
           emit(
             event,
             event === "progress" &&

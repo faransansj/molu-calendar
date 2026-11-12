@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { inspectEnvironment, inspectModelCaches } from "../lib/ai/client.ts";
+import { inspectEnvironment } from "../lib/ai/client.ts";
+import { inspectModelCaches } from "../lib/ai/model-cache.ts";
 import { MODELS } from "../lib/ai/models.ts";
+import { errorCode } from "../lib/ai/protocol.ts";
 import { localAISession } from "../lib/ai/session.ts";
 
 export const MODEL = MODELS[0]!;
@@ -8,6 +10,7 @@ export const MODEL = MODELS[0]!;
 // Loading outlives the settings view, so its progress lives beside the session.
 let progress: number | null = null;
 let cached: boolean | null = null;
+let cacheWriteFailed = false;
 
 async function scanCache() {
   try {
@@ -22,12 +25,12 @@ async function scanCache() {
 function snapshot() {
   return {
     ready: localAISession.ready,
-    enabled: localAISession.momoEnabled,
     busy: localAISession.busy,
     loading: progress !== null,
     progress: progress ?? 0,
     notice: localAISession.notice,
     cached,
+    cacheWriteFailed,
   };
 }
 
@@ -40,13 +43,9 @@ export function useLocalAI() {
     return () => localAISession.removeEventListener("change", changed);
   }, []);
 
-  const setEnabled = useCallback(
-    (enabled: boolean) => localAISession.save({ momoEnabled: enabled }),
-    [],
-  );
-
   const prepare = useCallback(async () => {
     progress = 0;
+    cacheWriteFailed = false;
     localAISession.notify();
     try {
       const environment = await inspectEnvironment();
@@ -72,6 +71,11 @@ export function useLocalAI() {
         ),
       );
       localAISession.notice = "";
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === "cache_write_failed" || code === "storage_low")
+        cacheWriteFailed = true;
+      throw error;
     } finally {
       progress = null;
       await scanCache();
@@ -88,8 +92,9 @@ export function useLocalAI() {
       client.request("delete", { modelId: localAISession.modelId }),
     );
     localAISession.notice = "";
+    cacheWriteFailed = false;
     await scanCache();
   }, []);
 
-  return { ...state, setEnabled, prepare, cancel, remove };
+  return { ...state, prepare, cancel, remove };
 }

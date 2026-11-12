@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { usePersistentState } from "../hooks/calendar.ts";
-import type { FeedEvent } from "../lib/calendar/feed.ts";
-import {
-  ARONA,
-  momoReply,
-  momoTopicsFor,
-  scheduleReply,
-} from "../lib/chat/replies.ts";
-import type { Student } from "../lib/chat/replies.ts";
+import { ARONA } from "../lib/chat/students.ts";
+import type { Student } from "../lib/chat/students.ts";
 import { sitePath } from "../lib/urls.ts";
 import { cx } from "../lib/cx.ts";
 import {
@@ -28,7 +22,7 @@ import { MomoSettings } from "./MomoSettings.tsx";
 import { MemoryPanel } from "./MemoryPanel.tsx";
 import type { Memory } from "../lib/chat/transcript.ts";
 import { localAISession } from "../lib/ai/session.ts";
-import { momoCalendarQuery, momoSupportsAI } from "../lib/chat/prompt.ts";
+import { momoSupportsAI } from "../lib/chat/prompt.ts";
 import { planChatPrompt } from "../lib/chat/plan.ts";
 
 const isIds = (v: unknown): v is string[] =>
@@ -110,39 +104,29 @@ function Profile({
   );
 }
 
-function AIBadge({
-  enabled,
-  onSettings,
-}: {
-  enabled: boolean;
-  onSettings: () => void;
-}) {
+function AIBadge({ onSettings }: { onSettings: () => void }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
       <span className={cx(pill, "bg-selected text-blue-strong")}>
         <Icon name="sparkle" />
         AI 대화 지원
       </span>
-      {!enabled && (
-        <button
-          type="button"
-          className="text-xs font-semibold text-blue underline-offset-2 hover:underline"
-          onClick={onSettings}
-        >
-          설정에서 켜기
-        </button>
-      )}
+      <button
+        type="button"
+        className="text-xs font-semibold text-blue underline-offset-2 hover:underline"
+        onClick={onSettings}
+      >
+        모델 설정
+      </button>
     </div>
   );
 }
 
 export function MomoTalk({
-  events,
   open,
   onClose,
   onUnread,
 }: {
-  events: FeedEvent[];
   open: boolean;
   onClose: () => void;
   onUnread: (total: number) => void;
@@ -195,12 +179,6 @@ export function MomoTalk({
   const total = Object.values(unread).reduce((sum, n) => sum + n, 0);
   const student = students.find((s) => s.id === (room ?? selected)) ?? ARONA;
   const messages = room ? (rooms[room] ?? []) : [];
-  const topics = momoTopicsFor(room ?? selected);
-  const topic =
-    topics[
-      (chat.summaries.find((entry) => entry.roomId === room)
-        ?.userMessageCount ?? 0) % topics.length
-    ]!;
   const roomAI = !!room && momoSupportsAI(room);
   const memories =
     roomAI && loadedMemories?.room === room ? loadedMemories.rows : [];
@@ -301,9 +279,6 @@ export function MomoTalk({
     setUnread((current) => ({ ...current, [id]: 0 }));
     try {
       await chat.load(id);
-      if (!chat.transcript.current?.cached(id)?.messages.length) {
-        await chat.append(id, { me: false, text: momoTopicsFor(id)[0]!.ask });
-      }
     } catch {
       /* Storage error is displayed by the chat hook. */
     }
@@ -328,17 +303,21 @@ export function MomoTalk({
     epoch.current++;
     ai.cancel();
   };
-  const send = async (text: string, reply?: string, retry = false) => {
-    if (!room || sending.current || !text.trim() || !chat.ready || chat.error)
+  const send = async (text: string, retry = false) => {
+    if (
+      !room ||
+      !momoSupportsAI(room) ||
+      sending.current ||
+      !text.trim() ||
+      !chat.ready ||
+      chat.error
+    )
       return;
     const id = room;
     const store = chat.transcript.current;
     if (!store) return;
-    const calendar = momoCalendarQuery(text.trim());
-    const useAI =
-      !reply && !calendar && localAISession.momoEnabled && momoSupportsAI(id);
     // Never start a 2 GB download from the composer; send people to settings.
-    if (useAI && !localAISession.ready && ai.cached !== true) {
+    if (!localAISession.ready && ai.cached !== true) {
       setNote({
         tone: "warn",
         text: `${student.short}의 AI 답장을 받으려면 먼저 모델을 받아 주세요.`,
@@ -370,55 +349,47 @@ export function MomoTalk({
             : await chat.append(id, { me: true, text: question });
           if (!questionRecord) throw new Error("답장할 메시지가 없어요.");
           if (!retry) setInput("");
-          let answer: string;
-          if (useAI) {
-            if (!localAISession.ready) await ai.prepare();
-            if (generation !== epoch.current) return;
-            const plan = await planChatPrompt(
-              store,
-              id,
-              question,
-              retry ? history.slice(0, -1) : history,
-            );
-            setContext(
-              [
-                plan.memories.length && `기억 ${plan.memories.length}개`,
-                plan.excerpts.length && `지난 대화 ${plan.excerpts.length}개`,
-              ]
-                .filter(Boolean)
-                .join(" · "),
-            );
-            const result = await localAISession.run("momotalk", (client) =>
-              client.request(
-                "generate",
-                {
-                  characterId: id,
-                  messages: plan.messages,
-                  memories: plan.memories,
-                  excerpts: plan.excerpts,
-                  maxTokens: 256,
+          if (!localAISession.ready) await ai.prepare();
+          if (generation !== epoch.current) return;
+          const plan = await planChatPrompt(
+            store,
+            id,
+            question,
+            retry ? history.slice(0, -1) : history,
+          );
+          setContext(
+            [
+              plan.memories.length && `기억 ${plan.memories.length}개`,
+              plan.excerpts.length && `지난 대화 ${plan.excerpts.length}개`,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          );
+          const result = await localAISession.run("momotalk", (client) =>
+            client.request(
+              "generate",
+              {
+                characterId: id,
+                messages: plan.messages,
+                memories: plan.memories,
+                excerpts: plan.excerpts,
+                maxTokens: 256,
+              },
+              {
+                firstMs: 60000,
+                timeoutMs: 180000,
+                onEvent: (event) => {
+                  if (event.event === "token" && generation === epoch.current)
+                    setStream(event.text ?? "");
                 },
-                {
-                  firstMs: 5000,
-                  timeoutMs: 60000,
-                  onEvent: (event) => {
-                    if (event.event === "token" && generation === epoch.current)
-                      setStream(event.text ?? "");
-                  },
-                },
-              ),
-            );
-            answer = result.text;
-          } else
-            answer = scheduleReply(
-              reply ?? calendar ?? momoReply(question, student),
-              events,
-            );
+              },
+            ),
+          );
           if (generation !== epoch.current) return;
           await chat.append(id, {
             me: false,
-            text: answer,
-            sourceKind: useAI ? "model-output" : "script",
+            text: result.text,
+            sourceKind: "model-output",
             expectedLastMessageId: questionRecord.id,
           });
           chime();
@@ -477,8 +448,8 @@ export function MomoTalk({
     <button
       type="button"
       className={cx(quietButton, smallButton, "min-h-8!")}
-      disabled={!!chat.error}
-      onClick={() => void send(messages.at(-1)!.text, undefined, true)}
+      disabled={!roomAI || !!chat.error}
+      onClick={() => void send(messages.at(-1)!.text, true)}
     >
       다시 시도
     </button>
@@ -603,7 +574,7 @@ export function MomoTalk({
                   </small>
                 </span>
               </button>
-              {roomAI && ai.enabled && (
+              {roomAI && (
                 <button
                   type="button"
                   className={cx(
@@ -630,7 +601,7 @@ export function MomoTalk({
                       : "AI 대기"}
                 </button>
               )}
-              {roomAI && (ai.enabled || memories.length > 0) && (
+              {roomAI && (
                 <button
                   type="button"
                   className={cx(
@@ -659,12 +630,7 @@ export function MomoTalk({
             {panel === "profile" ? (
               <div className="flex-1 scroll-thin overflow-y-auto">
                 <Profile student={student}>
-                  {roomAI && (
-                    <AIBadge
-                      enabled={ai.enabled}
-                      onSettings={() => setSettings(true)}
-                    />
-                  )}
+                  {roomAI && <AIBadge onSettings={() => setSettings(true)} />}
                 </Profile>
                 <div className="flex flex-wrap items-center gap-2 border-t border-line-soft px-5 pt-4 pb-5">
                   <button
@@ -711,6 +677,11 @@ export function MomoTalk({
                   aria-live="polite"
                   className="flex min-h-0 flex-1 scroll-thin flex-col gap-4 overflow-y-auto bg-surface-2 p-4 max-sm:px-2"
                 >
+                  {messages.length === 0 && (
+                    <p className="m-auto text-center text-sm text-muted">
+                      메시지를 보내 대화를 시작해 보세요.
+                    </p>
+                  )}
                   {!chat.ready && !chat.error && (
                     <p role="status" className="m-auto text-sm text-muted">
                       대화를 불러오는 중이에요…
@@ -830,11 +801,25 @@ export function MomoTalk({
                             </span>
                           )}
                         </p>
-                        <span className="mt-1 text-2xs text-muted">
-                          {ai.loading
-                            ? `모델 준비 중 ${Math.round(ai.progress * 100)}%`
-                            : context && `${context} 참고 중`}
-                        </span>
+                        {ai.loading ? (
+                          <span className="mt-1 text-2xs text-muted">
+                            모델 준비 중 {Math.round(ai.progress * 100)}%
+                          </span>
+                        ) : (
+                          <>
+                            {!stream && (
+                              <span className="mt-1 text-2xs text-muted">
+                                첫 답변을 준비하고 있어요. 최대 60초 정도 걸릴
+                                수 있어요.
+                              </span>
+                            )}
+                            {context && (
+                              <span className="mt-1 text-2xs text-muted">
+                                {context} 참고 중
+                              </span>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
@@ -857,6 +842,12 @@ export function MomoTalk({
                       최신 대화로
                     </button>
                   )}
+                {!roomAI && (
+                  <Notice tone="info" className="mt-3 shrink-0">
+                    AI 대화를 지원하지 않는 학생이에요. 기존 대화만 볼 수
+                    있어요.
+                  </Notice>
+                )}
                 {(note || retryable) && (
                   <Notice
                     tone={note?.tone ?? "warn"}
@@ -874,22 +865,6 @@ export function MomoTalk({
                     {note?.text ?? `${student.short}의 답장을 받지 못했어요.`}
                   </Notice>
                 )}
-                <div
-                  className="flex shrink-0 flex-wrap justify-end gap-2 pt-3"
-                  aria-label="답장 선택"
-                >
-                  {topic.options.map((option) => (
-                    <button
-                      key={option.text}
-                      type="button"
-                      className={cx(quietButton, smallButton, "rounded-full")}
-                      disabled={blocked || !!messages.at(-1)?.me}
-                      onClick={() => send(option.text, option.reply)}
-                    >
-                      {option.text}
-                    </button>
-                  ))}
-                </div>
                 <form
                   className="mt-3 flex shrink-0 gap-2"
                   onSubmit={(e) => {
@@ -901,6 +876,7 @@ export function MomoTalk({
                     className={cx(field, "flex-1")}
                     aria-label="메시지 입력"
                     placeholder={`${student.short}에게 메시지 보내기`}
+                    disabled={!roomAI}
                     maxLength={2000}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -919,7 +895,10 @@ export function MomoTalk({
                       className={primaryButton}
                       type="submit"
                       disabled={
-                        blocked || !!messages.at(-1)?.me || !input.trim()
+                        !roomAI ||
+                        blocked ||
+                        !!messages.at(-1)?.me ||
+                        !input.trim()
                       }
                     >
                       전송
@@ -1040,7 +1019,7 @@ export function MomoTalk({
                             <span className="min-w-0">
                               <strong className="flex items-center gap-1.5 text-sm">
                                 {s.short}
-                                {ai.enabled && momoSupportsAI(s.id) && (
+                                {momoSupportsAI(s.id) && (
                                   <Icon
                                     name="sparkle"
                                     className="size-3.5 text-accent"
@@ -1087,17 +1066,18 @@ export function MomoTalk({
                   >
                     <Profile student={student}>
                       {momoSupportsAI(student.id) && (
-                        <AIBadge
-                          enabled={ai.enabled}
-                          onSettings={() => setSettings(true)}
-                        />
+                        <AIBadge onSettings={() => setSettings(true)} />
                       )}
                     </Profile>
                     <div className="px-5 pb-5">
                       <button
                         type="button"
                         className={primaryButton}
-                        disabled={!chat.ready || !!chat.error}
+                        disabled={
+                          !momoSupportsAI(student.id) ||
+                          !chat.ready ||
+                          !!chat.error
+                        }
                         onClick={() => openRoom(student.id)}
                       >
                         대화 시작
@@ -1109,6 +1089,11 @@ export function MomoTalk({
                       >
                         목록으로
                       </button>
+                      {!momoSupportsAI(student.id) && (
+                        <p className="mt-2 text-xs text-muted">
+                          아직 AI 대화를 지원하지 않는 학생이에요.
+                        </p>
+                      )}
                     </div>
                   </aside>
                 </div>

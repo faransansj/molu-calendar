@@ -244,7 +244,6 @@ export function App({ events: feedEvents }: { events: FeedEvent[] }) {
         }}
       />
       <MomoTalk
-        events={events}
         open={momoOpen}
         onClose={() => setMomoOpen(false)}
         onUnread={setMomoUnread}

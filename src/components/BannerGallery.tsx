@@ -3,9 +3,12 @@ import type { FeedEvent } from "../lib/calendar/feed.ts";
 import { cx } from "../lib/cx.ts";
 import { Icon } from "./Icon.tsx";
 import { iconButton } from "./ui.tsx";
+import { useAdminContext } from "../hooks/useAdmin.ts";
+import type { ImageCrop } from "../lib/admin/overrides.ts";
+import { cropStyle } from "./EventArt.tsx";
 
 type Direction = "next" | "prev";
-type Banner = { src: string; event: FeedEvent };
+type Banner = { src: string; event: FeedEvent; crop: ImageCrop | null };
 type Slide = {
   id: string | null;
   leaving: string | null;
@@ -45,6 +48,7 @@ export function BannerGallery({
   events: FeedEvent[];
   onOpen: (id: string) => void;
 }) {
+  const { overrides } = useAdminContext();
   const banners = useMemo(
     () =>
       [
@@ -54,8 +58,12 @@ export function BannerGallery({
             return src ? [[src, event] as const] : [];
           }),
         ),
-      ].map(([src, event]): Banner => ({ src, event })),
-    [events],
+      ].map(([src, event]): Banner => ({
+        src,
+        event,
+        crop: overrides.get(event.id)?.image?.crop ?? null,
+      })),
+    [events, overrides],
   );
   const [slide, setSlide] = useState<Slide>({
     id: null,
@@ -126,7 +134,7 @@ export function BannerGallery({
               setSlide((state) => ({ ...state, leaving: null }));
           }}
         >
-          {banners.map(({ src, event }) => {
+          {banners.map(({ src, event, crop }) => {
             const isCurrent = event.id === current.event.id;
             const isLeaving = !isCurrent && event.id === slide.leaving;
             return (
@@ -146,7 +154,11 @@ export function BannerGallery({
                   </span>
                 ) : (
                   <img
-                    className="size-full object-contain"
+                    className={cx(
+                      "size-full",
+                      crop ? "object-cover" : "object-contain",
+                    )}
+                    style={crop ? cropStyle(crop) : undefined}
                     src={src}
                     alt={isCurrent ? `${event.title} 공식 안내 배너` : ""}
                     fetchPriority={isCurrent ? "high" : "low"}

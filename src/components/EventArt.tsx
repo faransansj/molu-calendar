@@ -1,8 +1,19 @@
 import { useState } from "react";
+import type { CSSProperties } from "react";
+import { useAdminContext } from "../hooks/useAdmin.ts";
+import type { ImageCrop } from "../lib/admin/overrides.ts";
 import { CATEGORIES } from "../lib/calendar/calendar.ts";
 import { cx } from "../lib/cx.ts";
 import type { FeedEvent } from "../lib/calendar/feed.ts";
 import { categoryStyle } from "./ui.tsx";
+
+export function cropStyle(crop: ImageCrop): CSSProperties {
+  return {
+    objectPosition: `${crop.x}% ${crop.y}%`,
+    transformOrigin: `${crop.x}% ${crop.y}%`,
+    transform: crop.zoom > 1 ? `scale(${crop.zoom})` : undefined,
+  };
+}
 
 export function EventArt({
   event,
@@ -18,6 +29,7 @@ export function EventArt({
   size?: "thumb" | "large";
 }) {
   const [failed, setFailed] = useState<string | null>(null);
+  const crop = useAdminContext().overrides.get(event.id)?.image?.crop;
   const src = event.images?.[index];
   const classes = cx(
     "relative aspect-video overflow-hidden rounded-sm bg-surface-2",
@@ -33,6 +45,7 @@ export function EventArt({
           decoding="async"
           referrerPolicy="no-referrer"
           className="size-full object-cover"
+          style={index === 0 && crop ? cropStyle(crop) : undefined}
           onError={() => setFailed(src)}
         />
       </div>

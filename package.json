@@ -9,8 +9,8 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "dev": "pnpm build:ai && astro dev",
-    "build": "pnpm build:ai && astro build",
+    "dev": "pnpm build:publication && pnpm build:ai && astro dev",
+    "build": "pnpm build:publication && pnpm build:ai && astro build && node tools/prepare-worker-assets.ts",
     "preview": "wrangler dev",
     "astro": "astro",
     "scrape": "node scraper/cli.ts",
@@ -20,9 +20,11 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:css": "stylelint \"src/**/*.css\"",
-    "typecheck": "astro check && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.tools.json",
+    "types:server": "wrangler types src/server/worker-configuration.d.ts",
+    "typecheck": "astro check && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.tools.json && pnpm types:server && tsc --noEmit -p tsconfig.server.json",
     "check": "pnpm format:check && pnpm lint && pnpm lint:css && pnpm typecheck && pnpm test",
-    "deploy": "pnpm build && wrangler deploy",
+    "deploy": "PUBLICATION_SOURCE=deployed node tools/publish.ts prepare && pnpm build && wrangler deploy",
+    "build:publication": "node tools/build-publication.ts",
     "build:ai": "node tools/build-ai.ts",
     "check:static": "pnpm format:check && pnpm lint && pnpm lint:css && pnpm typecheck"
   },

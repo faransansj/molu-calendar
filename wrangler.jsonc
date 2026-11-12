@@ -1,11 +1,16 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "molu-calendar",
+  "main": "src/server/index.ts",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "html_handling": "auto-trailing-slash",
+    "run_worker_first": ["/api/*", "/vendor/litert-lm/0.17.1/*.wasm"],
   },
+  "d1_databases": [{ "binding": "DB", "database_name": "molu-admin" }],
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "molu-admin-images" }],
   "observability": { "enabled": true },
 }

@@ -1,5 +1,6 @@
 import { sitePath } from "../lib/urls.ts";
 import { useState } from "react";
+import { useAdminContext } from "../hooks/useAdmin.ts";
 import {
   clockLabel,
   dateKey,
@@ -10,7 +11,8 @@ import {
 import { cx } from "../lib/cx.ts";
 import type { FeedEvent } from "../lib/calendar/feed.ts";
 import { downloadICS } from "../lib/calendar/ics.ts";
-import { EventArt } from "./EventArt.tsx";
+import { cropStyle, EventArt } from "./EventArt.tsx";
+import { EventEditor } from "./EventEditor.tsx";
 import { Icon } from "./Icon.tsx";
 import {
   Countdown,
@@ -141,12 +143,16 @@ export function EventDialog({
   onShowDay,
 }: Props) {
   const [imageIndex, setImageIndex] = useState(0);
+  const admin = useAdminContext();
+  const crop = admin.overrides.get(event?.id ?? "")?.image?.crop;
   const [copied, setCopied] = useState(false);
-  const [shown, setShown] = useState(event);
-  if (shown !== event) {
-    setShown(event);
+  const [editing, setEditing] = useState(false);
+  const [shownId, setShownId] = useState(event?.id);
+  if (shownId !== event?.id) {
+    setShownId(event?.id);
     setImageIndex(0);
     setCopied(false);
+    setEditing(false);
   }
 
   const copyLink = async () => {
@@ -174,6 +180,17 @@ export function EventDialog({
       actions={
         event && (
           <>
+            {admin.admin && (
+              <button
+                type="button"
+                className={iconButton}
+                aria-label="일정 수정"
+                aria-pressed={editing}
+                onClick={() => setEditing(!editing)}
+              >
+                <Icon name="pencil" />
+              </button>
+            )}
             <button
               type="button"
               className={iconButton}
@@ -207,35 +224,40 @@ export function EventDialog({
     >
       {event && (
         <article style={categoryStyle(event)}>
-          <figure className="mb-4">
-            <EventArt event={event} index={imageIndex} eager size="large" />
-            {images.length > 1 && (
-              <div
-                className="mt-2 flex gap-1.5 overflow-x-auto"
-                role="group"
-                aria-label="이미지 선택"
-              >
-                {images.map((src, index) => (
-                  <button
-                    key={src}
-                    type="button"
-                    aria-pressed={index === imageIndex}
-                    aria-label={`이미지 ${index + 1}`}
-                    onClick={() => setImageIndex(index)}
-                    className="aspect-video flex-[0_0_76px] overflow-hidden rounded-sm opacity-50 transition-opacity hover:opacity-80 aria-pressed:opacity-100 aria-pressed:shadow-[0_0_0_2px_var(--color-accent)]"
-                  >
-                    <img
-                      src={src}
-                      alt=""
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="size-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-          </figure>
+          {!(editing && admin.admin) && (
+            <figure className="mb-4">
+              <EventArt event={event} index={imageIndex} eager size="large" />
+              {images.length > 1 && (
+                <div
+                  className="mt-2 flex gap-1.5 overflow-x-auto"
+                  role="group"
+                  aria-label="이미지 선택"
+                >
+                  {images.map((src, index) => (
+                    <button
+                      key={src}
+                      type="button"
+                      aria-pressed={index === imageIndex}
+                      aria-label={`이미지 ${index + 1}`}
+                      onClick={() => setImageIndex(index)}
+                      className="aspect-video flex-[0_0_76px] overflow-hidden rounded-sm opacity-50 transition-opacity hover:opacity-80 aria-pressed:opacity-100 aria-pressed:shadow-[0_0_0_2px_var(--color-accent)]"
+                    >
+                      <img
+                        src={src}
+                        alt=""
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="size-full object-cover"
+                        style={
+                          index === 0 && crop ? cropStyle(crop) : undefined
+                        }
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </figure>
+          )}
           <div className="flex items-baseline justify-between gap-2">
             <TagLine event={event} status />
             <Countdown
@@ -247,7 +269,11 @@ export function EventDialog({
           <h2 id="event-title" className={cx(dialogHeading, "mt-2")}>
             {event.title}
           </h2>
-          <Times event={event} />
+          {editing && admin.admin ? (
+            <EventEditor key={event.id} event={event} />
+          ) : (
+            <Times event={event} />
+          )}
 
           {!!event.periods?.length && (
             <section className={section}>

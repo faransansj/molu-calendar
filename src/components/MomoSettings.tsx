@@ -121,7 +121,7 @@ function AISection({ students }: { students: Student[] }) {
                 .slice(0, 3)
                 .map((s) => s.short)
                 .join(", ")}{" "}
-              외 {supported.length - 3}명 지원
+              {supported.length > 3 ? `외 ${supported.length - 3}명 ` : ""}지원
             </span>
           </div>
         )}

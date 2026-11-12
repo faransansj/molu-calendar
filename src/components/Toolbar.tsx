@@ -19,6 +19,7 @@ interface Props {
   onFind: (step: number) => void;
   unread: number;
   onMomoTalk: () => void;
+  onSettings: () => void;
 }
 
 const VIEWS = [
@@ -40,6 +41,7 @@ export function Toolbar({
   onFind,
   unread,
   onMomoTalk,
+  onSettings,
 }: Props) {
   const { month, today, select } = useCalendar();
   const search = useRef<HTMLInputElement>(null);
@@ -185,6 +187,18 @@ export function Toolbar({
           </button>
         </div>
         <div className="col-start-4 row-start-1 flex items-center gap-2 justify-self-end max-sm:col-start-2 max-sm:row-start-1">
+          <button
+            className={cx(
+              control,
+              "grid size-[34px] shrink-0 place-items-center text-blue hover:bg-hover-strong max-sm:size-8",
+            )}
+            type="button"
+            title="설정"
+            aria-label="설정 열기"
+            onClick={onSettings}
+          >
+            <Icon name="settings" className="size-[17px]" />
+          </button>
           <button
             className={cx(
               control,

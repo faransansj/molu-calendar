@@ -32,6 +32,13 @@ memory. Model output never becomes a saved memory automatically. Disabled or
 expired memories are excluded from model input. Keep source message IDs and
 source text when saving from a transcript.
 
+## Shared settings
+
+The standalone MOLU settings dialog is owned by the calendar app and can open
+without opening MomoTalk or a room. It reuses MomoTalk's transcript, notification
+sound preference and local AI session for model preparation and backup controls.
+Opening settings from a blocked send preserves the current room and draft.
+
 ## Model input
 
 Every new character reply, including responses to schedule questions, uses the

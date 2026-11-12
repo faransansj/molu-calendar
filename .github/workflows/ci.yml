@@ -22,8 +22,3 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm build
-      - name: Build with a GitHub Pages project path
-        run: pnpm build
-        env:
-          SITE_URL: https://faransansj.github.io
-          SITE_BASE: /molu-calendar

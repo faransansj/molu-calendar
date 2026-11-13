@@ -317,7 +317,7 @@ function asLastRowId(value: unknown): number | null {
     : null;
 }
 
-function toResult<T>(
+function toResult<T = Record<string, unknown>>(
   entry: ManagementQueryResult,
   target: "local" | "remote",
   index: number,
@@ -603,7 +603,13 @@ export function createLocalD1(options: LocalD1Options = {}): D1Adapter {
     statements: readonly D1Statement[],
   ): Promise<D1StatementResult<Record<string, unknown>>[]> => {
     if (statements.length === 0) return [];
-    const rendered = statements.map(renderStatement);
+    // Local Wrangler omits changes metadata. SQLite counters recover it without
+    // changing the caller's changes() state, including between CAS statements.
+    const rendered = statements.flatMap((statement) => [
+      "SELECT total_changes() AS __molu_total",
+      renderStatement(statement),
+      "SELECT total_changes() AS __molu_total, changes() AS __molu_changes, last_insert_rowid() AS __molu_rowid",
+    ]);
     const directory = await mkdtemp(join(tmpdir(), "molu-d1-"));
     const file = join(directory, "statements.sql");
     try {
@@ -613,14 +619,40 @@ export function createLocalD1(options: LocalD1Options = {}): D1Adapter {
         cwd,
       );
       const entries = parseLocalOutput(stdout);
-      if (entries.length !== statements.length)
+      if (entries.length !== statements.length * 3)
         throw new D1Error(
-          `D1 local transport returned ${String(entries.length)} results for ${String(statements.length)} statements`,
+          `D1 local transport returned an unexpected result count for ${String(statements.length)} statements`,
           { target: "local" },
         );
-      return entries.map((entry, index) =>
-        toResult<Record<string, unknown>>(entry, "local", index),
-      );
+      return statements.map((_, index) => {
+        const before = toResult(entries[index * 3]!, "local", index);
+        const result = toResult(entries[index * 3 + 1]!, "local", index);
+        const after = toResult(entries[index * 3 + 2]!, "local", index);
+        const initial = before.rows[0]?.__molu_total;
+        const final = after.rows[0];
+        const total = final?.__molu_total;
+        const changed = final?.__molu_changes;
+        if (
+          typeof initial !== "number" ||
+          !Number.isSafeInteger(initial) ||
+          typeof total !== "number" ||
+          !Number.isSafeInteger(total) ||
+          total < initial ||
+          typeof changed !== "number" ||
+          !Number.isSafeInteger(changed) ||
+          changed < 0
+        )
+          throw new D1Error(
+            "D1 local transport returned invalid SQLite counters",
+            { target: "local", statementIndex: index },
+          );
+        return {
+          ...result,
+          changes: total === initial ? 0 : changed,
+          rowsWritten: total - initial,
+          lastRowId: asLastRowId(final?.__molu_rowid),
+        };
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

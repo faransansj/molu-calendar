@@ -101,7 +101,7 @@ export function CalendarSettings({
             onClick={onSources}
           >
             <Icon name="info" />
-            데이터와 출처
+            개인정보 처리방침
           </button>
         </div>
       </div>

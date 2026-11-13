@@ -307,22 +307,20 @@ export function App({
             settings={!adminBlocked && settingsOpen}
             setSettings={setSettingsOpen}
             settingsContent={
-              <>
-                <CalendarSettings
-                  view={view}
-                  onView={changeView}
-                  folded={folded}
-                  onToggleFolded={toggleFolded}
-                  bookmarksOnly={activeFilter === "bookmarks"}
-                  onBookmarksOnly={(enabled) =>
-                    setFilter(enabled ? "bookmarks" : "all")
-                  }
-                  onSubscribe={() => setSubscribeOpen(true)}
-                  onSources={() => setSourcesOpen(true)}
-                />
-                {!adminPage && <AdminSettings />}
-              </>
+              <CalendarSettings
+                view={view}
+                onView={changeView}
+                folded={folded}
+                onToggleFolded={toggleFolded}
+                bookmarksOnly={activeFilter === "bookmarks"}
+                onBookmarksOnly={(enabled) =>
+                  setFilter(enabled ? "bookmarks" : "all")
+                }
+                onSubscribe={() => setSubscribeOpen(true)}
+                onSources={() => setSourcesOpen(true)}
+              />
             }
+            settingsFooter={!adminPage && <AdminSettings />}
             onClose={() => setMomoOpen(false)}
             onUnread={setMomoUnread}
           />

@@ -184,7 +184,7 @@ export function DayBriefing({
       </div>
       <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-line-soft bg-weekend px-(--inset-x) py-0.5 text-xs whitespace-nowrap text-muted max-md:whitespace-normal">
         <button type="button" className={footerLink} onClick={onSources}>
-          데이터와 출처
+          개인정보 처리방침
         </button>
         <button
           type="button"

@@ -128,6 +128,7 @@ export function MomoTalk({
   settings,
   setSettings,
   settingsContent,
+  settingsFooter,
   onClose,
   onUnread,
 }: {
@@ -135,6 +136,7 @@ export function MomoTalk({
   settings: boolean;
   setSettings: (settings: boolean) => void;
   settingsContent: ReactNode;
+  settingsFooter: ReactNode;
   onClose: () => void;
   onUnread: (total: number) => void;
 }) {
@@ -1180,6 +1182,7 @@ export function MomoTalk({
             busy={!!busy}
             onChange={changed}
           />
+          {settingsFooter}
         </div>
       </Dialog>
     </>

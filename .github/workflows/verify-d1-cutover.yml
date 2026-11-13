@@ -1,0 +1,75 @@
+name: Verify isolated D1 credential
+
+on:
+  push:
+    branches: [fix/runtime-calendar-data]
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-d1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+      SITE_URL: ${{ vars.SITE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Exercise actual credential on isolated database only
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFile } from "node:fs/promises";
+          import { createRemoteD1 } from "./tools/cloudflare-d1.ts";
+          import { initializeCalendar, exportCalendar, uploadCalendar } from "./tools/calendar-data.ts";
+          import { validateFeed } from "./scraper/schema.ts";
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_D1_API_TOKEN;
+          assert.match(accountId ?? "", /^[a-f0-9]{32}$/);
+          assert.ok(token, "Scoped CI D1 credential is required");
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database`;
+          const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+          const createdResponse = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ name: `molu-ci-cutover-${process.env.GITHUB_RUN_ID}` }), signal: AbortSignal.timeout(60000) });
+          assert.ok(createdResponse.ok, `Isolated create HTTP ${createdResponse.status}`);
+          const created = await createdResponse.json();
+          assert.equal(created.success, true);
+          const databaseId = created.result.uuid;
+          assert.match(databaseId, /^[a-f0-9-]{36}$/);
+          console.log(`Created isolated test database ${databaseId}`);
+          try {
+            const db = createRemoteD1({ accountId, databaseId, token });
+            const probe = await db.batch([
+              { sql: "CREATE TABLE probe(id INTEGER PRIMARY KEY,body TEXT NOT NULL)" },
+              { sql: "INSERT INTO probe VALUES(?,?)", params: [1, "한🌸 O'Reilly"] },
+              { sql: "SELECT id,body FROM probe WHERE id=?", params: [1] },
+            ]);
+            assert.deepEqual(probe[2].rows, [{ id: 1, body: "한🌸 O'Reilly" }]);
+            await assert.rejects(db.batch([
+              { sql: "UPDATE probe SET body=? WHERE id=?", params: ["rollback", 1] },
+              { sql: "INSERT INTO probe VALUES(?,?)", params: [1, "duplicate"] },
+            ]));
+            assert.deepEqual((await db.query("SELECT body FROM probe WHERE id=?", [1])).rows, [{ body: "한🌸 O'Reilly" }]);
+            const feed = validateFeed(JSON.parse(await readFile("public/data/events.json", "utf8")));
+            const predecessor = await initializeCalendar(db, feed, { publication: null, overrides: [] }, process.env.SITE_URL);
+            assert.equal(await exportCalendar(db, ".calendar/probe-feed.json"), predecessor);
+            const updated = validateFeed({ ...feed, generated_at: new Date().toISOString(), events: feed.events.map((event, index) => index === 0 ? { ...event, title: "Isolated CI credential verification" } : event) });
+            const active = await uploadCalendar(db, updated, predecessor, process.env.SITE_URL);
+            assert.notEqual(active, predecessor);
+            assert.equal(await uploadCalendar(db, updated, predecessor, process.env.SITE_URL), active);
+            assert.deepEqual((await db.query("SELECT feed_id,previous_feed_id,published_id FROM calendar_state")).rows, [{ feed_id: active, previous_feed_id: predecessor, published_id: null }]);
+            console.log("PASS actual CI D1 token: native bindings, atomic rollback, init/export/upload/CAS/no-op; no production database or hostname requests");
+          } finally {
+            const removed = await fetch(`${endpoint}/${databaseId}`, { method: "DELETE", headers, signal: AbortSignal.timeout(60000) });
+            assert.ok(removed.ok, `Isolated cleanup HTTP ${removed.status}`);
+            assert.equal((await removed.json()).success, true);
+            console.log(`Deleted isolated test database ${databaseId}`);
+          }
+          NODE

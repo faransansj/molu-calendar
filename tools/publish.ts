@@ -75,8 +75,16 @@ async function request(
   });
   if (!response.ok) {
     await response.body?.cancel();
+    const metadata = ["content-type", "cf-ray", "cf-mitigated"]
+      .map((name) => {
+        const value = (response.headers.get(name) ?? "")
+          .replace(/\p{Cc}/gu, " ")
+          .slice(0, 200);
+        return `${name}=${JSON.stringify(value)}`;
+      })
+      .join(" ");
     throw new Error(
-      `Publication API ${method} ${path}: HTTP ${response.status}`,
+      `Publication API ${method} ${path}: HTTP ${response.status} ${metadata}`,
     );
   }
   return response;

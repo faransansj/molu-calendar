@@ -92,6 +92,12 @@ prepare, checks, build, and Worker deployment; a `main` push does not deploy.
 Code pushes export only the currently deployed snapshot, preserving unpublished
 administrator edits.
 
+Publication API failures include the HTTP status and only `content-type`,
+`cf-ray`, and `cf-mitigated` response headers, with control characters sanitized
+and each value capped at 200 characters. Use the request time and `cf-ray` to
+correlate a failed Actions request with Cloudflare Security Events; a rejected
+export still fails deployment rather than substituting staged or empty content.
+
 The daily 06:00 KST schedule checks out `deploy`, commits official feed updates
 there, and deploys them without publishing pending administrator edits. Bot feed
 commits remain a direct-push exception. Preserve the latest `deploy` official feed

@@ -20,6 +20,7 @@ import {
   uploadReferenced,
 } from "./db.ts";
 import { loadFeed } from "./feed.ts";
+import { calendarRoute } from "./calendar.ts";
 import { publicationRoute, uploadedImage } from "./publication.ts";
 import {
   error,
@@ -54,6 +55,8 @@ async function route(request: Request, env: ServerEnv): Promise<Response> {
       encodeBody: "manual",
     });
   }
+  const calendar = await calendarRoute(request, env);
+  if (calendar) return calendar;
   if (!pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
   if (pathname.startsWith("/api/admin/") && method !== "GET") {
     const denied = guardMutation(request);
@@ -67,8 +70,8 @@ async function route(request: Request, env: ServerEnv): Promise<Response> {
     if (method !== "GET") return error(405, "method-not-allowed");
     const session = await requireSession(request, env);
     if (session instanceof Response) return session;
-    const feed = await loadFeed(env.ASSETS);
-    return json({ overrides: await listOverrides(env.DB, feed) });
+    const feed = await loadFeed(env.DB);
+    return json({ overrides: await listOverrides(env.DB, feed.events) });
   }
 
   const imagePath = /^\/api\/images\/([^/]+)$/.exec(pathname);
@@ -108,10 +111,12 @@ async function route(request: Request, env: ServerEnv): Promise<Response> {
   }
   const session = await requireSession(request, env);
   if (session instanceof Response) return session;
-  const feed = await loadFeed(env.ASSETS);
-  const event = feed.get(id);
+  const feed = await loadFeed(env.DB);
+  if (request.headers.get("X-MOLU-Feed") !== feed.id)
+    return error(409, "stage-conflict");
+  const event = feed.events.get(id);
   if (!event) return error(404, "not-found");
-  const previous = await getOverride(env.DB, id, feed);
+  const previous = await getOverride(env.DB, id, feed.events);
 
   if (method === "DELETE") {
     await readBody(request, JSON_LIMIT);
@@ -120,7 +125,8 @@ async function route(request: Request, env: ServerEnv): Promise<Response> {
       id,
       field,
       null,
-      feed,
+      feed.id,
+      feed.events,
       previous?.image ?? null,
     );
     // A retained release owns its uploaded images even after a staged restore.
@@ -140,7 +146,14 @@ async function route(request: Request, env: ServerEnv): Promise<Response> {
       return error(400, "invalid-schedule", { message: checked.message });
     }
     return json({
-      override: await saveOverride(env.DB, id, field, checked.value, feed),
+      override: await saveOverride(
+        env.DB,
+        id,
+        field,
+        checked.value,
+        feed.id,
+        feed.events,
+      ),
     });
   }
 
@@ -184,7 +197,8 @@ async function route(request: Request, env: ServerEnv): Promise<Response> {
       id,
       field,
       image,
-      feed,
+      feed.id,
+      feed.events,
       previous?.image ?? null,
     );
   } catch (cause) {

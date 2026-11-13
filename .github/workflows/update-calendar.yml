@@ -10,24 +10,24 @@ on:
         description: Read more history (3 pages × 50 threads per board)
         type: boolean
         default: false
-      publication_id:
-        description: Immutable staged publication to hotfix (skips scraping)
-        type: string
-        required: false
-  push:
-    branches: [deploy]
+
+permissions:
+  contents: read
 
 concurrency:
-  group: update-calendar
+  group: calendar-feed-update
   cancel-in-progress: false
 
 jobs:
-  scrape:
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/deploy' && inputs.publication_id == '')
+  update:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/deploy')
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_DATABASE_ID: ${{ vars.CLOUDFLARE_DATABASE_ID }}
+      CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+      SITE_URL: ${{ vars.SITE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,78 +38,16 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Read official notices
+      - name: Export current D1 archive
+        run: pnpm calendar:export --out .calendar/feed.json --remote
+      - name: Read official notices strictly
+        env:
+          BACKFILL: ${{ inputs.backfill }}
         run: |
-          if [ "${{ inputs.backfill }}" = "true" ]; then pnpm scrape:backfill; else pnpm scrape; fi
-      - name: Commit schedule changes
-        run: |
-          if git diff --quiet -- public/data/events.json; then
-            echo "No schedule changes." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          if [ "$BACKFILL" = "true" ]; then
+            pnpm scrape --out .calendar/feed.json --strict --pages 3 --page-size 50
+          else
+            pnpm scrape --out .calendar/feed.json --strict
           fi
-          git config user.name "molu-calendar-bot"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/events.json
-          git commit -m "chore(data): refresh official schedules"
-          git pull --rebase origin deploy
-          git push origin HEAD:deploy
-
-  deploy:
-    needs: scrape
-    if: always() && !cancelled() && (github.event_name == 'schedule' || github.ref == 'refs/heads/deploy') && (needs.scrape.result == 'success' || needs.scrape.result == 'skipped')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    env:
-      ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
-      PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
-      PUBLICATION_SOURCE: ${{ github.event_name == 'workflow_dispatch' && inputs.publication_id != '' && 'staged' || 'deployed' }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'push' && github.sha || 'deploy' }}
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Prepare immutable publication
-        id: prepare
-        run: node tools/publish.ts prepare
-        env:
-          PUBLICATION_ID: ${{ inputs.publication_id }}
-      - run: pnpm check
-      - name: Build
-        run: pnpm build
-        env:
-          SITE_URL: ${{ vars.SITE_URL }}
-      - name: Deploy to Cloudflare
-        id: deploy
-        run: pnpm exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Mark publication deployed
-        if: steps.prepare.outputs.publication_id != ''
-        run: node tools/publish.ts complete
-        env:
-          PUBLICATION_ID: ${{ steps.prepare.outputs.publication_id }}
-      - name: Mark publication failed
-        if: always() && (failure() || cancelled()) && steps.deploy.outcome != 'success' && (steps.prepare.outputs.publication_id != '' || inputs.publication_id != '')
-        # Keep this callback independent of checkout, Node setup, and install:
-        # a requested hotfix may fail or be cancelled before prepare can run.
-        run: |
-          if [[ ! "$PUBLICATION_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-            echo "Invalid PUBLICATION_ID" >&2
-            exit 1
-          fi
-          curl --fail-with-body --silent --show-error --max-time 60 \
-            --request PUT \
-            --header "Authorization: Bearer $PUBLISH_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data '{"state":"failed"}' \
-            "${ADMIN_ORIGIN%/}/api/publish/releases/$PUBLICATION_ID/status"
-        env:
-          PUBLICATION_ID: ${{ steps.prepare.outputs.publication_id || inputs.publication_id }}
+      - name: Upload and activate official version
+        run: pnpm calendar:upload --feed .calendar/feed.json --base .calendar/base.json --remote

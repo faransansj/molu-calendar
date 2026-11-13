@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { FeedEvent } from "../calendar/feed.ts";
 import { addDays } from "../calendar/calendar.ts";
 import {
+  applicableOverrides,
   applyOverrides,
   DEFAULT_CROP,
   fromKstInput,
@@ -114,4 +115,71 @@ test("KST input conversion is explicit and rejects impossible dates", () => {
   expect(fromKstInput("2026-11-03T11:00")).toBe("2026-11-03T11:00:00+09:00");
   expect(toKstInput("2026-11-03T02:00:00Z")).toBe("2026-11-03T11:00");
   expect(fromKstInput("2026-02-30T11:00")).toBeNull();
+});
+test("applicableOverrides omits disappeared events without touching stored rows", () => {
+  const gone: EventOverride = {
+    event_id: "event-20260325-00000000",
+    image: {
+      upload: "12345678-1234-1234-1234-123456789abc.webp",
+      crop: { ...DEFAULT_CROP },
+    },
+    schedule: { ...schedule },
+    updated_at: event.updated_at,
+  };
+  const kept: EventOverride = {
+    event_id: event.id,
+    image: null,
+    schedule: { ...schedule },
+    updated_at: event.updated_at,
+  };
+  const snapshot = JSON.parse(JSON.stringify([gone, kept]));
+  const result = applicableOverrides([event], [gone, kept]);
+  expect(result).toEqual([kept]);
+  expect(result[0]).toBe(kept);
+  expect([gone, kept]).toEqual(snapshot);
+});
+test("applicableOverrides preserves image/crop when schedule becomes incompatible", () => {
+  const image = {
+    upload: "12345678-1234-1234-1234-123456789abc.webp",
+    crop: { ...DEFAULT_CROP, zoom: 2 },
+  };
+  const stored: EventOverride = {
+    event_id: event.id,
+    image,
+    schedule: { ...schedule },
+    updated_at: event.updated_at,
+  };
+  const kindChanged = { ...event, kind: "deadline" as const };
+  const dayChanged = { ...event, all_day: true };
+  for (const changed of [kindChanged, dayChanged]) {
+    const [kept] = applicableOverrides([changed], [stored]);
+    expect(kept).toEqual({ ...stored, schedule: null });
+    expect(kept?.image).toBe(image);
+  }
+  expect(stored).toEqual({
+    event_id: event.id,
+    image,
+    schedule: { ...schedule },
+    updated_at: event.updated_at,
+  });
+});
+test("applicableOverrides omits rows left with neither displayable field", () => {
+  const scheduleOnly: EventOverride = {
+    event_id: event.id,
+    image: null,
+    schedule: { ...schedule },
+    updated_at: event.updated_at,
+  };
+  const point = { ...event, kind: "deadline" as const };
+  expect(applicableOverrides([point], [scheduleOnly])).toEqual([]);
+  expect(scheduleOnly.schedule).toEqual({ ...schedule });
+  const compatible: EventOverride = {
+    ...scheduleOnly,
+    image: {
+      upload: "12345678-1234-1234-1234-123456789abc.webp",
+      crop: { ...DEFAULT_CROP },
+    },
+  };
+  const [kept] = applicableOverrides([event], [compatible]);
+  expect(kept).toBe(compatible);
 });

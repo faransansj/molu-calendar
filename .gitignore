@@ -15,3 +15,4 @@ src/server/worker-configuration.d.ts
 .publication/
 public/data/published.json
 public/resource/admin/
+.calendar/

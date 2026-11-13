@@ -5,7 +5,6 @@ import {
   clearFailures,
   createSession,
   deleteSession,
-  ensureSchema,
   failures,
   findSession,
   prune,
@@ -18,13 +17,10 @@ import {
   readJson,
   response,
 } from "./http.ts";
+import { ensureSchema } from "./calendar-store.ts";
 
 export type ServerEnv = Env & {
   ADMIN_PASSWORD_HASH?: string;
-  PUBLISH_TOKEN?: string;
-  GITHUB_TOKEN?: string;
-  GITHUB_REPOSITORY?: string;
-  GITHUB_REF?: string;
 };
 
 const COOKIE = "__Host-molu_admin";
@@ -66,52 +62,6 @@ export async function requireSession(
     return error(401, "unauthorized");
   }
   return hash;
-}
-
-export async function requirePublisher(
-  request: Request,
-  env: ServerEnv,
-): Promise<Response | null> {
-  // CI uses only bearer credentials. Browser origins are never accepted here.
-  if (request.headers.has("Origin")) return error(403, "forbidden");
-  if (
-    !env.PUBLISH_TOKEN ||
-    /\s/.test(env.PUBLISH_TOKEN) ||
-    env.PUBLISH_TOKEN.length > 8185
-  )
-    return error(503, "publishing-disabled");
-  const authorization = request.headers.get("Authorization") ?? "";
-  if (authorization.length > 8192) return error(401, "unauthorized");
-  const match = /^Bearer ([^\s]+)$/i.exec(authorization);
-  if (!match) return error(401, "unauthorized");
-  const [supplied, expected] = await Promise.all([
-    sha256hex(match[1]!),
-    sha256hex(env.PUBLISH_TOKEN),
-  ]);
-  let difference = 0;
-  for (let index = 0; index < expected.length; index++) {
-    difference |= supplied.charCodeAt(index) ^ expected.charCodeAt(index);
-  }
-  if (difference !== 0) return error(401, "unauthorized");
-  if (request.method !== "GET") {
-    const contentType = request.headers
-      .get("Content-Type")
-      ?.split(";", 1)[0]
-      ?.trim()
-      .toLowerCase();
-    if (contentType !== "application/json") return error(400, "bad-request");
-    const length = request.headers.get("Content-Length");
-    if (length !== null) {
-      if (!/^\d+$/.test(length)) return error(400, "bad-request");
-      if (
-        !Number.isSafeInteger(Number(length)) ||
-        Number(length) > JSON_LIMIT
-      ) {
-        return error(413, "payload-too-large");
-      }
-    }
-  }
-  return null;
 }
 
 export function guardMutation(request: Request): Response | null {

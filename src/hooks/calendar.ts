@@ -23,6 +23,9 @@ export interface Calendar {
   open: (id: string) => void;
 }
 
+// The official version the editor actually displayed, not a later server read.
+export const OfficialFeedContext = createContext("");
+
 export const CalendarContext = createContext<Calendar | null>(null);
 export const useCalendar = () => useContext(CalendarContext)!;
 

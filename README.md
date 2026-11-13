@@ -25,99 +25,121 @@ pnpm scrape           # Refresh schedules; scrape:backfill includes older notice
 
 ## Deployment
 
-The public calendar is static: it reads embedded published overrides and local
-`/resource/admin/` images, with **no administrator API calls**. `/admin/` is the
-authenticated staging preview. It shares the calendar UI but never exposes
-unpublished edits through the public calendar or public API.
+The browser loads the current official feed and immutable published administrator
+snapshot together from `/api/calendar`. D1 is authoritative; the Astro build
+contains neither calendar JSON nor administrator images. An unavailable calendar
+shows a retryable error, never stale bundled data or a successful empty calendar.
+Public image URLs are served from R2 only after publication. `/admin/` loads
+authenticated private drafts separately; possessing a session never exposes
+drafts through public calendar endpoints.
+
 Administrator entry opens a password modal over a blurred, inert workspace.
-The workspace unlocks only after authentication and stage loading complete;
-logout or session expiry locks it again. Closing the authentication popup
-returns to the public calendar instead of bypassing the gate.
-The password field has an inline eye-icon toggle on its right edge; each login
-attempt clears the input and restores password masking.
+The workspace unlocks after authentication and stage loading complete. Logout or
+session expiry locks it again; closing the login dialog returns to the public
+calendar. Each login attempt clears the password and restores masking.
 
 ### Stage and hotfix
 
-- **스테이지 올려두기** saves the selected image or period to the stage. It does
-  not change the public calendar. Restoring an original image/period also stages
-  that restoration.
-- **핫픽스** saves that edit and requests immediate publication of the **entire
-  saved stage**, including other saved edits. The global **스테이지 전체 핫픽스**
-  publishes already-saved edits/restorations.
-- Every day at **06:00 KST** (`0 21 * * *` UTC), GitHub Actions refreshes official
-  notices and deploys them with the **currently deployed** administrator snapshot.
-  Saved stage changes are never included automatically.
-- Code pushes and manual workflow runs without a publication ID also preserve
-  the currently deployed snapshot. Only an explicit publication request with a
-  publication ID deploys staged edits. Publication starts immediately on request;
-  the public site changes after checks, build, and deployment succeed.
+- **스테이지 올려두기** saves only the selected image, crop, or period. Restoring
+  an original also saves a private draft. Saving never publishes automatically.
+- **핫픽스** saves that edit, then publishes the entire saved stage immediately.
+  **스테이지 전체 핫픽스** publishes already-saved edits/restorations.
+- Publication atomically inserts an immutable snapshot, registers its public
+  image references, and switches the D1 public pointer. Success means publication
+  is complete; there is no Actions dispatch, build, callback, or polling.
+- Later saves remain private. Previously published image URLs remain accessible
+  even after replacement/restoration, because retained immutable snapshots own
+  their image references.
+- Every day at **06:00 KST** (`0 21 * * *` UTC), Actions collects official notices
+  in Node, uploads validated JSON/precomputed ICS to D1, and atomically activates
+  the official version. It never changes the administrator public pointer or
+  draft revision and does not deploy code.
 
-Each publication fixes an immutable revision and its image references. Later
-edits remain staged for the next publication. The admin page shows staged/public
-revisions and queued, building, published, or failed state. A dispatch failure
-does not discard staged edits or change the public site. Deployments use one
-workflow concurrency group and never cancel an in-progress deployment.
-Abandoned queued requests expire after 30 minutes; delayed expired jobs cannot
-start. Building releases are not expired automatically. After a successful
-deployment, its static publication marker is authoritative: status/export reads
-recover a missed completion callback without rolling back to an older release.
+Official rotation never rewrites draft/history rows. Missing events are omitted
+from display; incompatible saved periods are omitted without losing valid image
+or crop edits. An explicit publication rejects an incompatible saved period for a
+known event with `409 stage-conflict`, rather than silently dropping the edit.
+An outdated editor also receives `409 stage-conflict` using its loaded feed ID;
+unsaved input stays intact until the user explicitly reloads the page.
 
-The official `public/data/events.json` and static `/feeds/*.ics` remain original.
-The public calendar and its per-event `.ics` download use the published schedule.
-Published JSON and images are bundled into `dist/`, so the same build can be
-distributed to other deployment targets without a live management API.
+`/data/events.json` and `/feeds/{all,game,category}.ics` remain official-only.
+The public calendar and per-event/bookmark downloads use applicable published
+periods. Data responses revalidate against the current D1 pointer with ETags.
+There is no background official-feed polling that resets editor inputs.
 
 ### Production configuration
 
-Deploy at `https://molu.midori-lab.com`; leave `SITE_BASE` unset. The Worker
-custom domain is configured in `wrangler.jsonc`. Wrangler auto-provisions
-`molu-admin` (D1) and `molu-admin-images` (R2); enable R2 on the Cloudflare account.
+Keep the custom domain `https://molu.midori-lab.com`, `SITE_BASE` unset, and Bot
+Fight Mode enabled. Code deployment and data import do not call the protected
+application hostname. No Cron, Durable Object, Queue, Workflow, or paid service
+is needed.
 
-| Location                    | Required configuration                                                                              |
-| --------------------------- | --------------------------------------------------------------------------------------------------- |
-| GitHub repository variables | `SITE_URL`, `ADMIN_ORIGIN` — full HTTPS origins; normally the same Worker origin                    |
-| GitHub repository secrets   | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `PUBLISH_TOKEN`                                    |
-| Worker secrets              | `ADMIN_PASSWORD_HASH`, matching `PUBLISH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY` (`owner/repo`) |
-| Optional Worker secret      | `GITHUB_REF` — dispatch branch; defaults to `deploy`                                                |
+| Location         | Required configuration                                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub variables | `SITE_URL` HTTPS origin; `CLOUDFLARE_DATABASE_ID` matching Wrangler's `DB` binding                                                     |
+| GitHub secrets   | Existing `CLOUDFLARE_API_TOKEN` for code deployment and `CLOUDFLARE_ACCOUNT_ID`; separate `CLOUDFLARE_D1_API_TOKEN` for data ingestion |
+| Worker secret    | `ADMIN_PASSWORD_HASH`                                                                                                                  |
+| Worker bindings  | Existing `DB` (`molu-admin`), `IMAGES` (`molu-admin-images`), and `ASSETS`                                                             |
 
-Use a random high-entropy `PUBLISH_TOKEN`. This authenticates build/export and
-completion callbacks; it is never sent to the browser. The Worker's fine-grained
-`GITHUB_TOKEN` needs Actions write permission on only the target repository.
-Do not confuse it with GitHub Actions' automatic token.
+Scope the CI data token to **D1 Write on the owning account**. It can access this
+database's administrator tables as well as official data: keep it only in
+GitHub secrets/operator process memory, never browser/Worker code, files, SQL,
+logs, or PRs. Do not reuse a publisher/GitHub token for D1. Legacy remote secrets
+are no longer used by code; removing or rotating them is a separate explicit
+operator action.
 
-Keep `main` as the default development branch. Merge code into `main` through a
-PR, then merge a `main` → `deploy` PR to release it. Opening or updating a PR
-runs CI, not a production deployment. Every `deploy` push runs publication
-prepare, checks, build, and Worker deployment; a `main` push does not deploy.
-Code pushes export only the currently deployed snapshot, preserving unpublished
-administrator edits.
+Keep the standard feature PR → `main` → `deploy` release PR flow:
 
-Publication API failures include the HTTP status and only `content-type`,
-`cf-ray`, and `cf-mitigated` response headers, with control characters sanitized
-and each value capped at 200 characters. Use the request time and `cf-ray` to
-correlate a failed Actions request with Cloudflare Security Events; a rejected
-export still fails deployment rather than substituting staged or empty content.
+- `ci.yml`: checks/builds PRs and feature pushes.
+- `deploy.yml`: deploy-only push or manual code release; checks and builds the
+  exact push SHA, then deploys the Worker. It never reads or mutates feed or
+  publication data.
+- `update-calendar.yml`: scheduled/manual strict collection against the current
+  D1 archive; manual runs on non-`deploy` refs skip mutation. No git writes,
+  application-domain requests, build, or deployment.
 
-The daily 06:00 KST schedule checks out `deploy`, commits official feed updates
-there, and deploys them without publishing pending administrator edits. Bot feed
-commits remain a direct-push exception. Preserve the latest `deploy` official feed
-when resolving a release PR conflict. Manual Update calendar runs must target
-`deploy`: without `publication_id` they refresh the feed and retain the live
-administrator snapshot; with it they publish that immutable release without
-scraping. A manual `main` run skips both jobs. Shared workflow concurrency
-serializes deployments but does not guarantee FIFO delivery of every queued merge.
+Data and code workflows have separate non-cancelling concurrency groups. An
+official activation checks its exported predecessor; a competing update loses
+without overwriting the winner. Failed staging leaves public pointers unchanged.
+Current and previous official versions are retained; other versions are eligible
+for bounded pruning after 48 hours. This never prunes publications or R2 images.
 
-The first deployment must bootstrap the API before Actions can export it:
+### Explicit initialization and operator commands
 
-1. On a fresh checkout without `.publication/snapshot.json`, run `pnpm build`
-   then `pnpm exec wrangler deploy` after authenticating Cloudflare.
-2. Register Worker secrets with `pnpm exec wrangler secret put <NAME>` and set
-   the matching GitHub configuration above.
-3. Enable/run the Update calendar workflow. Subsequent `pnpm deploy` commands
-   require `ADMIN_ORIGIN` and `PUBLISH_TOKEN` and export the deployed snapshot
-   first, so code deployments cannot silently erase published changes.
+Only `calendar:init` bootstraps an empty calendar store. Normal requests never
+seed official data; absent active data returns `503 calendar-unavailable`.
+Remote commands require `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`,
+`CLOUDFLARE_D1_API_TOKEN` in process environment. `init`/`upload` also require
+`SITE_URL` (HTTPS production origin; HTTP loopback allowed locally).
 
-Generate the administrator password hash without putting plaintext in argv:
+```sh
+pnpm calendar:init --feed <official.json> --published <live-manifest.json> --remote
+pnpm calendar:export --out .calendar/feed.json --remote
+pnpm scrape --out .calendar/feed.json --strict
+pnpm calendar:upload --feed .calendar/feed.json --base .calendar/base.json --remote
+```
+
+Before the first runtime cutover, wait for old deployment jobs, export a D1
+backup, and capture the currently served official JSON and publication marker.
+Initialize from those exact live inputs, not a git seed or the latest draft.
+A null marker stays null regardless of draft revisions. A non-null marker must
+match D1's exact immutable ID/revision and legacy filtered overrides, and all
+retained published images must be readable with authorized R2 access. Conflicts
+abort rather than publishing a draft or fabricating empty content. Initialization
+is idempotent only for matching active inputs.
+
+The importer validates schema-v2 input and rejects empty data. Version IDs are
+SHA-256 of compact validated JSON. JSON/ICS artifacts are immutable, manifest-
+verified, limited to 16 MiB each, and stored in Unicode-safe 32 KiB chunks.
+Publication snapshots are limited to 1,800,000 UTF-8 bytes.
+Remote failures report only sanitized HTTP/status metadata, never SQL bindings,
+credentials, or response data. `.calendar/` is ignored operational output.
+
+After new runtime publications or official activations, do not roll back to the
+old static-publication application without an explicit data-preserving rollback
+plan. Roll forward fixes instead.
+
+Generate the administrator password hash without plaintext in argv:
 
 ```sh
 read -rs -p 'Admin password: ' ADMIN_PASSWORD; printf '\n'
@@ -125,45 +147,42 @@ printf '%s' "$ADMIN_PASSWORD" | node tools/admin-password-hash.ts | pnpm exec wr
 unset ADMIN_PASSWORD
 ```
 
-If Workers Free login exceeds its CPU limit (error 1102), regenerate with
-`ITERATIONS=10000 node tools/admin-password-hash.ts`. Administrator sessions use
-secure, HTTP-only, same-site cookies and expire after eight hours.
+If Free login exceeds its CPU limit (1102), regenerate with
+`ITERATIONS=10000 node tools/admin-password-hash.ts`. Sessions remain secure,
+HTTP-only, same-site, and expire after eight hours. Measure deployed endpoint
+CPU/resource outcomes; local wall-clock timings do not establish Free viability.
 
-### Local publication verification
+### Local runtime verification
 
-Put `ADMIN_PASSWORD_HASH=<hash>` and a random `PUBLISH_TOKEN` in ignored
-`.dev.vars`. Run `pnpm build`, then `pnpm preview`; open `/admin/` to edit.
-Missing hotfix dispatch configuration returns `503 publishing-disabled` without
-claiming that anything was deployed. `409 publish-busy` means a publication is
-already active; `502 publish-failed` means GitHub did not accept the request.
-`409 stage-conflict` rejects an overlapping image edit instead of resurrecting
-a replaced upload. `409 not-deployed` rejects a premature completion callback;
-`503 deployed-unavailable` refuses exports when the live marker is inconsistent.
+Use a disposable checkout with its own ignored `.dev.vars`/`.wrangler`. Put a
+test-only `ADMIN_PASSWORD_HASH` in `.dev.vars`; no publisher credentials are
+needed. Create an explicit null bootstrap marker:
 
-`tools/publish.ts prepare` exports an immutable stage snapshot and its images;
-set `ADMIN_ORIGIN=http://localhost:8787` and the same `PUBLISH_TOKEN`. Build and
-serve/deploy that snapshot before running `tools/publish.ts complete`.
-`PUBLICATION_SOURCE=deployed` exports only the live revision for code-only builds.
-Downloaded inputs remain in ignored `.publication/`; normal local builds never
-contact the management API. Do not commit generated `public/data/published.json`
-or `public/resource/admin/` assets. D1/R2 state stays in ignored `.wrangler/`.
+```sh
+mkdir -p .calendar
+printf '%s\n' '{"publication":null,"overrides":[]}' > .calendar/null.json
+pnpm install --frozen-lockfile
+SITE_URL=http://localhost:8811 pnpm build
+SITE_URL=http://localhost:8811 pnpm calendar:init --local --feed public/data/events.json --published .calendar/null.json
+pnpm preview --port 8811
+```
 
-`pnpm dev` serves the published snapshot already downloaded locally, or the
-official feed on a fresh checkout. Public settings link to `/admin/`; without a
-Worker, its authentication popup stays accessible and reports management
-connectivity failures while keeping the administrator workspace locked.
+The checked-in official JSON is only an explicit bootstrap/fixture seed.
+Real data flows require local Wrangler, not Astro-only API stubs. `pnpm dev`
+is an Astro presentation server and cannot serve D1/admin routes.
+Stop preview before rebuilding: Astro temporarily copies oversized raw LiteRT
+assets before the asset-preparation tool replaces them with gzip files.
 
-PNG/JPEG/WebP uploads are re-encoded in the browser, independently signature-
-and dimension-checked on the server, and limited to 5 MiB after encoding.
-Image objects referenced by retained publication snapshots are not deleted by
-stage restoration/replacement; this preserves reproducible releases and uses R2
-storage for retained publication history.
+Exercise export → strict scrape → upload with `--local`; normal browser reloads
+must see activated data without a rebuild/restart. Save drafts in `/admin/`,
+confirm the public calendar is unchanged, then explicitly publish and reload
+the public tab. Per-event ICS includes displayed edits; subscription ICS does not.
 
-LiteRT's pinned asyncify WASM files exceed Workers' 25 MiB asset limit.
-`pnpm build` stores those two files as gzip assets in `dist/`; the Worker serves
-their original URLs with gzip encoding. Development retains the original files.
-Runtime bytes and classic Worker behavior are unchanged. This is asset-delivery
-verification, not GPU/model validation.
+PNG/JPEG/WebP uploads are re-encoded in the browser, signature/dimension-checked
+on the server, and limited to 5 MiB after encoding. Classic AI Worker behavior
+and pinned LiteRT bytes are unchanged. Its two oversized asyncify WASM files
+are gzip assets in `dist/`, served at their original URLs. These calendar checks
+are not GPU/model validation.
 
 ## Chat and local AI
 

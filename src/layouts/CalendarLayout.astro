@@ -1,14 +1,11 @@
 ---
 import "../styles/global.css";
 import { sitePath } from "../lib/urls.ts";
-import { events } from "../lib/calendar/data.ts";
-import type { EventOverride } from "../lib/admin/overrides.ts";
 
 interface Props {
   adminPage?: boolean;
-  overrides?: EventOverride[];
 }
-const { adminPage = false, overrides = [] } = Astro.props;
+const { adminPage = false } = Astro.props;
 const title = adminPage ? "MOLU 관리자" : "MOLU";
 ---
 
@@ -59,16 +56,6 @@ const title = adminPage ? "MOLU 관리자" : "MOLU";
         >
       </p>
     </noscript>
-    <script
-      type="application/json"
-      id="events"
-      set:html={JSON.stringify(events).replaceAll("<", "\\u003c")}
-    />
-    <script
-      type="application/json"
-      id="overrides"
-      set:html={JSON.stringify(overrides).replaceAll("<", "\\u003c")}
-    />
     <script>
       import "../main.tsx";
     </script>

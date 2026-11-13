@@ -19,13 +19,9 @@ export type ErrorCode =
   | "invalid-password"
   | "too-many-attempts"
   | "admin-disabled"
-  | "publishing-disabled"
-  | "publish-failed"
-  | "publish-busy"
-  | "stage-conflict"
-  | "deployed-unavailable"
-  | "not-deployed"
-  | "invalid-transition";
+  | "calendar-unavailable"
+  | "publication-too-large"
+  | "stage-conflict";
 
 export function response(
   body: BodyInit | null,

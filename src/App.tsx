@@ -18,7 +18,11 @@ import {
   usePersistentState,
 } from "./hooks/calendar.ts";
 import { AdminContext, useAdmin } from "./hooks/useAdmin.ts";
-import { applyOverrides, type EventOverride } from "./lib/admin/overrides.ts";
+import {
+  applicableOverrides,
+  applyOverrides,
+  type EventOverride,
+} from "./lib/admin/overrides.ts";
 import {
   CATEGORIES,
   addDays,
@@ -79,15 +83,25 @@ export function App({
   const admin = useAdmin(adminPage, publishedOverrides);
   const adminBlocked = adminPage && (!admin.admin || admin.status !== "ready");
   const now = useNow(30_000);
+  // Display-only: raw admin.overrides still feeds EventEditor restore/edit.
+  const displayOverrides = useMemo(
+    () =>
+      new Map(
+        applicableOverrides(feedEvents, [...admin.overrides.values()]).map(
+          (entry) => [entry.event_id, entry],
+        ),
+      ),
+    [feedEvents, admin.overrides],
+  );
   // The weekly scrape drops expired open-ended events; hide them between scrapes too.
   const events = useMemo(
     () =>
       applyOverrides(
         feedEvents,
-        admin.overrides,
+        displayOverrides,
         adminPage ? undefined : (name) => sitePath(`resource/admin/${name}`),
       ).filter((event) => !openEndedExpired(event, now)),
-    [feedEvents, admin.overrides, adminPage, now],
+    [feedEvents, displayOverrides, adminPage, now],
   );
   const today = dateKey(now);
   const [initial] = useState(initialUrlState);

@@ -24,11 +24,12 @@ export class AdminError extends Error {
       "unsupported-image": "PNG·JPEG·WebP 이미지만 올릴 수 있어요.",
       "payload-too-large": "이미지는 5MB 이하여야 해요.",
       offline: "관리 서버에 연결하지 못했어요.",
-      "publishing-disabled": "게시 서버가 설정되지 않았어요.",
-      "publish-failed": "게시 요청을 전달하지 못했어요. 다시 시도해 주세요.",
-      "publish-busy": "이미 게시가 진행 중이에요. 완료 후 다시 시도해 주세요.",
+      "calendar-unavailable":
+        "현재 일정을 불러오지 못했어요. 다시 시도해 주세요.",
+      "publication-too-large":
+        "게시할 수정이 너무 커요. 스테이지 내용을 줄인 뒤 다시 시도해 주세요.",
       "stage-conflict":
-        "다른 수정과 겹쳤어요. 스테이지를 다시 불러온 뒤 저장해 주세요.",
+        "공식 일정이나 다른 수정과 겹쳤어요. 페이지를 새로 불러온 뒤 저장해 주세요.",
     };
     super(
       (code === "invalid-schedule" ? details.message : messages[code]) ??
@@ -82,10 +83,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-function jsonMutation(method: string, body: unknown = {}): RequestInit {
+function jsonMutation(
+  method: string,
+  body: unknown = {},
+  feedId?: string,
+): RequestInit {
   return {
     method,
-    headers: { "X-MOLU-Admin": "1", "Content-Type": "application/json" },
+    headers: {
+      "X-MOLU-Admin": "1",
+      "Content-Type": "application/json",
+      ...(feedId === undefined ? {} : { "X-MOLU-Feed": feedId }),
+    },
     body: JSON.stringify(body),
   };
 }
@@ -135,20 +144,22 @@ function eventPath(id: string, field: "image" | "schedule"): string {
 export async function saveSchedule(
   id: string,
   schedule: ScheduleOverride,
+  feedId: string,
 ): Promise<EventOverride | null> {
   const body = await request<OverrideResponse>(
     eventPath(id, "schedule"),
-    jsonMutation("PUT", schedule),
+    jsonMutation("PUT", schedule, feedId),
   );
   return body.override;
 }
 
 export async function restoreSchedule(
   id: string,
+  feedId: string,
 ): Promise<EventOverride | null> {
   const body = await request<OverrideResponse>(
     eventPath(id, "schedule"),
-    jsonMutation("DELETE"),
+    jsonMutation("DELETE", {}, feedId),
   );
   return body.override;
 }
@@ -157,22 +168,26 @@ export async function saveImage(
   id: string,
   crop: ImageCrop,
   file: Blob | null,
+  feedId: string,
 ): Promise<EventOverride | null> {
   const form = new FormData();
   form.set("crop", JSON.stringify(crop));
   if (file) form.set("file", file, "image");
   const body = await request<OverrideResponse>(eventPath(id, "image"), {
     method: "PUT",
-    headers: { "X-MOLU-Admin": "1" },
+    headers: { "X-MOLU-Admin": "1", "X-MOLU-Feed": feedId },
     body: form,
   });
   return body.override;
 }
 
-export async function restoreImage(id: string): Promise<EventOverride | null> {
+export async function restoreImage(
+  id: string,
+  feedId: string,
+): Promise<EventOverride | null> {
   const body = await request<OverrideResponse>(
     eventPath(id, "image"),
-    jsonMutation("DELETE"),
+    jsonMutation("DELETE", {}, feedId),
   );
   return body.override;
 }

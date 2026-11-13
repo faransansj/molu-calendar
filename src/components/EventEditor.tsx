@@ -107,7 +107,9 @@ export function EventEditor({ event }: { event: FeedEvent }) {
 
   const finishSave = async (hotfix: boolean) => {
     if (!hotfix) {
-      setMessage("스테이지에 저장했어요. 다음 오전 06:00 KST 게시에 반영돼요.");
+      setMessage(
+        "스테이지에 저장했어요. 공개 사이트에 반영하려면 핫픽스로 게시해 주세요.",
+      );
       return;
     }
     try {

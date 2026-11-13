@@ -13,6 +13,7 @@ import type {
   ScheduleOverride,
 } from "../lib/admin/overrides.ts";
 import type { PublicationStatus } from "../lib/admin/publication.ts";
+import { OfficialFeedContext } from "./calendar.ts";
 
 export type LoginResult =
   | { ok: true }
@@ -44,6 +45,7 @@ export function useAdmin(
   adminPage: boolean,
   publishedOverrides: readonly EventOverride[],
 ): Admin {
+  const feedId = useContext(OfficialFeedContext);
   const [status, setStatus] = useState<Admin["status"]>(
     adminPage ? "loading" : "ready",
   );
@@ -160,24 +162,6 @@ export function useAdmin(
     };
   }, [adminPage, reload]);
 
-  useEffect(() => {
-    if (!adminPage || !admin) return;
-    let stopped = false;
-    let timer: number;
-    const poll = async () => {
-      await enqueue(async (current) => {
-        if (!stopped && current())
-          await refreshPublication(() => !stopped && current());
-      });
-      if (!stopped) timer = window.setTimeout(() => void poll(), 10_000);
-    };
-    timer = window.setTimeout(() => void poll(), 10_000);
-    return () => {
-      stopped = true;
-      window.clearTimeout(timer);
-    };
-  }, [adminPage, admin, enqueue, refreshPublication]);
-
   const login = useCallback(
     (password: string): Promise<LoginResult> => {
       if (!adminPage) return Promise.resolve({ ok: false, reason: "disabled" });
@@ -279,10 +263,9 @@ export function useAdmin(
         const release = await api.publish();
         if (!current()) return;
         setPublication((previous) => ({
-          revision: previous?.revision ?? release.revision,
+          revision: release.revision,
           staged_at: previous?.staged_at ?? null,
-          latest: release,
-          deployed: previous?.deployed ?? null,
+          published: release,
         }));
         setPublicationError("");
         await refreshPublication(current);
@@ -310,10 +293,10 @@ export function useAdmin(
     logout,
     publish,
     saveSchedule: (id, schedule) =>
-      mutate(id, () => api.saveSchedule(id, schedule)),
-    restoreSchedule: (id) => mutate(id, () => api.restoreSchedule(id)),
+      mutate(id, () => api.saveSchedule(id, schedule, feedId)),
+    restoreSchedule: (id) => mutate(id, () => api.restoreSchedule(id, feedId)),
     saveImage: (id, crop, file) =>
-      mutate(id, () => api.saveImage(id, crop, file)),
-    restoreImage: (id) => mutate(id, () => api.restoreImage(id)),
+      mutate(id, () => api.saveImage(id, crop, file, feedId)),
+    restoreImage: (id) => mutate(id, () => api.restoreImage(id, feedId)),
   };
 }

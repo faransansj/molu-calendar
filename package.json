@@ -9,12 +9,15 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "dev": "pnpm build:publication && pnpm build:ai && astro dev",
-    "build": "pnpm build:publication && pnpm build:ai && astro build && node tools/prepare-worker-assets.ts",
+    "dev": "pnpm build:ai && astro dev",
+    "build": "pnpm build:ai && astro build && node tools/prepare-worker-assets.ts",
     "preview": "wrangler dev",
     "astro": "astro",
     "scrape": "node scraper/cli.ts",
     "scrape:backfill": "node scraper/cli.ts --pages 3 --page-size 50",
+    "calendar:init": "node tools/calendar-data.ts init",
+    "calendar:export": "node tools/calendar-data.ts export",
+    "calendar:upload": "node tools/calendar-data.ts upload",
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -23,8 +26,7 @@
     "types:server": "wrangler types src/server/worker-configuration.d.ts",
     "typecheck": "astro check && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.tools.json && pnpm types:server && tsc --noEmit -p tsconfig.server.json",
     "check": "pnpm format:check && pnpm lint && pnpm lint:css && pnpm typecheck && pnpm test",
-    "deploy": "PUBLICATION_SOURCE=deployed node tools/publish.ts prepare && pnpm build && wrangler deploy",
-    "build:publication": "node tools/build-publication.ts",
+    "deploy": "pnpm build && wrangler deploy",
     "build:ai": "node tools/build-ai.ts",
     "check:static": "pnpm format:check && pnpm lint && pnpm lint:css && pnpm typecheck"
   },

@@ -106,6 +106,25 @@ export function validateSchedule(
   }
   return { ok: true, value };
 }
+export function applicableOverrides(
+  events: readonly FeedEvent[],
+  overrides: readonly EventOverride[],
+): EventOverride[] {
+  const byId = new Map(events.map((event) => [event.id, event]));
+  const applicable: EventOverride[] = [];
+  for (const override of overrides) {
+    const event = byId.get(override.event_id);
+    if (!event) continue;
+    const schedule =
+      override.schedule && validateSchedule(override.schedule, event).ok
+        ? override.schedule
+        : null;
+    if (!override.image && !schedule) continue;
+    if (schedule === override.schedule) applicable.push(override);
+    else applicable.push({ ...override, schedule });
+  }
+  return applicable;
+}
 export function applyOverrides(
   events: FeedEvent[],
   overrides: ReadonlyMap<string, EventOverride>,

@@ -1,16 +1,8 @@
 import { useState } from "react";
 import { useAdminContext } from "../hooks/useAdmin.ts";
-import type { PublicationState } from "../lib/admin/publication.ts";
 import { sitePath } from "../lib/urls.ts";
 import { Icon } from "./Icon.tsx";
 import { Notice, primaryButton, quietButton, smallButton } from "./ui.tsx";
-
-const stateLabels: Record<PublicationState, string> = {
-  queued: "게시 대기 중",
-  building: "빌드·배포 중",
-  published: "게시 완료",
-  failed: "게시 실패",
-};
 
 export function AdminSettings() {
   const admin = useAdminContext();
@@ -18,10 +10,6 @@ export function AdminSettings() {
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState(false);
   const publication = admin.publication;
-  const publishing =
-    publication?.latest?.state === "queued" ||
-    publication?.latest?.state === "building";
-
   return (
     <section
       aria-labelledby="admin-settings"
@@ -74,8 +62,8 @@ export function AdminSettings() {
                   className={`${quietButton} ${smallButton}`}
                 >
                   스테이지 안내 · 게시 상태
-                  {publication?.latest &&
-                    ` · ${stateLabels[publication.latest.state]}`}
+                  {publication?.published &&
+                    ` · 공개 리비전 ${publication.published.revision}`}
                 </button>
                 <div
                   id="admin-stage-details"
@@ -84,9 +72,8 @@ export function AdminSettings() {
                 >
                   <p className="text-sm text-body">
                     이 페이지는 스테이지 미리보기예요. 저장한 수정은 자동으로
-                    게시되지 않아요. 핫픽스를 누르면 저장된 스테이지 전체의
-                    게시를 바로 요청해요. 빌드·배포가 끝나야 공개 사이트에
-                    반영돼요.
+                    게시되지 않아요. 핫픽스를 누르면 저장된 스테이지 전체가 바로
+                    공개 사이트에 반영돼요.
                   </p>
                   {admin.status === "offline" && (
                     <Notice
@@ -125,25 +112,20 @@ export function AdminSettings() {
                             <p>
                               스테이지 리비전: {publication.revision} · 공개
                               리비전:{" "}
-                              {publication.deployed?.revision ?? "아직 없음"}
+                              {publication.published?.revision ?? "아직 없음"}
                             </p>
-                            <p>
-                              {publication.deployed?.revision ===
-                              publication.revision
-                                ? "현재 스테이지가 공개 사이트에 반영됐어요."
-                                : "공개 사이트에 아직 반영되지 않은 스테이지가 있어요."}
-                            </p>
-                            {publication.latest && (
+                            {publication.published === null ? (
+                              <p>아직 게시된 내용이 없어요.</p>
+                            ) : publication.published.revision ===
+                              publication.revision ? (
                               <p>
-                                최근 게시:{" "}
-                                {stateLabels[publication.latest.state]} (리비전{" "}
-                                {publication.latest.revision})
+                                같은 리비전이에요. 공식 일정이 바뀐 뒤에는
+                                핫픽스로 다시 게시해야 반영돼요.
                               </p>
-                            )}
-                            {publication.latest?.state === "failed" && (
+                            ) : (
                               <p>
-                                스테이지는 보존돼 있어요. 핫픽스로 다시 요청할
-                                수 있어요.
+                                공개 사이트에 아직 반영되지 않은 스테이지가
+                                있어요.
                               </p>
                             )}
                           </>
@@ -167,25 +149,25 @@ export function AdminSettings() {
                     <button
                       type="button"
                       className={`${primaryButton} ${smallButton}`}
-                      disabled={busy || publishing || admin.status !== "ready"}
+                      disabled={busy || admin.status !== "ready"}
                       onClick={async () => {
                         setBusy(true);
                         setMessage("");
                         try {
                           await admin.publish();
                           setMessage(
-                            "핫픽스 게시를 요청했어요. 게시 완료 상태를 확인해 주세요.",
+                            "핫픽스를 게시했어요. 공개 사이트에 바로 반영됐어요.",
                           );
                         } catch (error) {
                           setMessage(
-                            `스테이지는 그대로 저장돼 있어요. ${error instanceof Error ? error.message : "게시 요청을 하지 못했어요."}`,
+                            `스테이지는 그대로 저장돼 있어요. ${error instanceof Error ? error.message : "게시하지 못했어요."}`,
                           );
                         } finally {
                           setBusy(false);
                         }
                       }}
                     >
-                      {publishing ? "게시 진행 중" : "스테이지 전체 핫픽스"}
+                      스테이지 전체 핫픽스
                     </button>
                     <button
                       type="button"

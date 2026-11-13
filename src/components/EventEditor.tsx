@@ -115,11 +115,11 @@ export function EventEditor({ event }: { event: FeedEvent }) {
     try {
       await admin.publish();
       setMessage(
-        "스테이지에 저장하고 핫픽스를 요청했어요. 게시 완료 후 공개 사이트에 반영돼요.",
+        "스테이지에 저장하고 핫픽스를 게시했어요. 공개 사이트에 바로 반영됐어요.",
       );
     } catch (cause) {
       throw new Error(
-        `스테이지에는 저장됐지만 핫픽스를 요청하지 못했어요. ${cause instanceof Error ? cause.message : "게시 상태를 확인해 주세요."}`,
+        `스테이지에는 저장됐지만 핫픽스를 게시하지 못했어요. ${cause instanceof Error ? cause.message : "게시 상태를 확인해 주세요."}`,
       );
     }
   };
@@ -164,14 +164,11 @@ export function EventEditor({ event }: { event: FeedEvent }) {
 
   const src = pending?.preview ?? event.images?.[0];
   const inputType = event.all_day ? "date" : "datetime-local";
-  const publishing =
-    admin.publication?.latest?.state === "queued" ||
-    admin.publication?.latest?.state === "building";
   return (
     <div className="mt-4 flex flex-col gap-5" aria-busy={busy}>
       <p className="text-sm text-muted">
         스테이지 올려두기는 저장만 해요. 핫픽스는 이 수정과 다른 저장된 수정
-        전체를 게시 요청해요. 되돌리기도 스테이지에 저장되며, 바로 반영하려면
+        전체를 바로 게시해요. 되돌리기도 스테이지에 저장되며, 바로 반영하려면
         관리자 페이지 위의 스테이지 전체 핫픽스를 사용해 주세요.
       </p>
       <fieldset disabled={busy || admin.status !== "ready"} className="min-w-0">
@@ -244,7 +241,7 @@ export function EventEditor({ event }: { event: FeedEvent }) {
           <button
             type="button"
             className={primaryButton}
-            disabled={busy || !src || publishing}
+            disabled={busy || !src}
             onClick={() => saveImage(true)}
           >
             핫픽스
@@ -333,7 +330,7 @@ export function EventEditor({ event }: { event: FeedEvent }) {
           <button
             type="button"
             className={primaryButton}
-            disabled={busy || publishing}
+            disabled={busy}
             onClick={() => saveSchedule(true)}
           >
             핫픽스

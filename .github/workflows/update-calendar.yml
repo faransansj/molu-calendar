@@ -64,7 +64,7 @@ jobs:
     env:
       ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
       PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
-      PUBLICATION_SOURCE: ${{ github.event_name == 'push' && 'deployed' || 'staged' }}
+      PUBLICATION_SOURCE: ${{ github.event_name == 'workflow_dispatch' && inputs.publication_id != '' && 'staged' || 'deployed' }}
     steps:
       - uses: actions/checkout@v4
         with:

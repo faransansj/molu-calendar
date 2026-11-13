@@ -45,11 +45,12 @@ attempt clears the input and restores password masking.
   saved stage**, including other saved edits. The global **스테이지 전체 핫픽스**
   publishes already-saved edits/restorations.
 - Every day at **06:00 KST** (`0 21 * * *` UTC), GitHub Actions refreshes official
-  notices and publishes the stage, even when the official feed did not change.
-  This is the scheduled start time, not a guaranteed completion time; GitHub can
-  delay scheduled runs, and building/deploying takes additional time.
-- Code pushes deploy code with the **currently deployed** snapshot, not pending
-  stage changes. Manual workflow runs without a publication ID publish the stage.
+  notices and deploys them with the **currently deployed** administrator snapshot.
+  Saved stage changes are never included automatically.
+- Code pushes and manual workflow runs without a publication ID also preserve
+  the currently deployed snapshot. Only an explicit publication request with a
+  publication ID deploys staged edits. Publication starts immediately on request;
+  the public site changes after checks, build, and deployment succeed.
 
 Each publication fixes an immutable revision and its image references. Later
 edits remain staged for the next publication. The admin page shows staged/public
@@ -92,13 +93,13 @@ Code pushes export only the currently deployed snapshot, preserving unpublished
 administrator edits.
 
 The daily 06:00 KST schedule checks out `deploy`, commits official feed updates
-there, and publishes staged content in the same workflow run. Bot feed commits
-remain a direct-push exception. Preserve the latest `deploy` official feed when
-resolving a release PR conflict. Manual Update calendar runs must target `deploy`:
-without `publication_id` they refresh the feed and publish staged content; with
-it they publish that immutable hotfix without scraping. A manual `main` run
-skips both jobs. Shared workflow concurrency serializes deployments but does not
-guarantee FIFO delivery of every queued merge.
+there, and deploys them without publishing pending administrator edits. Bot feed
+commits remain a direct-push exception. Preserve the latest `deploy` official feed
+when resolving a release PR conflict. Manual Update calendar runs must target
+`deploy`: without `publication_id` they refresh the feed and retain the live
+administrator snapshot; with it they publish that immutable release without
+scraping. A manual `main` run skips both jobs. Shared workflow concurrency
+serializes deployments but does not guarantee FIFO delivery of every queued merge.
 
 The first deployment must bootstrap the API before Actions can export it:
 
@@ -168,9 +169,19 @@ fallback replies. Back up conversations you want to keep.
 The gear-shaped settings button left of MomoTalk opens the app-wide **MOLU settings**
 popup without opening a conversation. It brings together calendar view preferences,
 bookmark filtering, saved timeline folding, MomoTalk notification sound, local AI/model
-management, and chat backup/import/deletion. Calendar subscription/export and data
-sources are also accessible there. View, folding, and sound changes reuse the existing
-browser preferences; bookmark filtering applies to the current calendar.
+management, and chat backup/import/deletion. Calendar subscription/export and the
+privacy policy are also accessible there. The policy explains on-device AI and
+storage, deletion, external downloads, and email inquiries; it retains schedule
+source links. Bug reports, security reports, suggestions, and privacy requests go
+to `molu-calendar.obstinate562@passinbox.com`.
+View, folding, and sound changes reuse the existing browser preferences; bookmark
+filtering applies to the current calendar.
+The administrator-mode section appears last, below chat data management.
+On the administrator page, staging instructions and publication details are
+collapsed by default under a disclosure that retains the latest publication status.
+The administrator heading stays left and the return link, disclosure toggle,
+hotfix, and logout controls align right in one compact toolbar row, wrapping only
+on narrow screens; expanded details appear below it.
 
 ## Credits
 

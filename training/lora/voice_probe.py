@@ -20,7 +20,10 @@ import json
 import re
 from pathlib import Path
 
-from probe_common import filter_prompts, generate, load_probe_model, read_prompts
+from probe_common import (
+    SEED, filter_prompts, generate, generation_lines, generation_settings,
+    load_probe_model, prompt_digest, read_prompts, rejudge_records,
+)
 
 POLITE = re.compile(r'(요|죠|니다|니다\.|세요|십시오|할게요|이에요|예요|네요|까요|래요|어요|아요)[.!?…~]?$')
 PLAIN = re.compile(r'(다|냐|야|어|아|지|군|네|잖아|거야|할래|해|봐|줘|마|자|까)[.!?…~]?$')
@@ -83,6 +86,12 @@ def judge(row, text):
     }
 
 
+def judgment(row, text):
+    metrics = judge(row, text)
+    return {'metrics': metrics,
+            'failed': [name for name, metric in metrics.items() if not metric['ok'] and not metric.get('skipped')]}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prompts', type=Path, default=Path('runs/voice-probe/prompts.jsonl'))
@@ -103,30 +112,17 @@ def main():
     args = parser.parse_args()
 
     if args.compare:
-        before = [json.loads(line) for line in (Path(args.compare[0]) / 'responses.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
-        after = [json.loads(line) for line in (Path(args.compare[1]) / 'responses.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
+        before = read_prompts(Path(args.compare[0]) / 'responses.jsonl')
+        after = read_prompts(Path(args.compare[1]) / 'responses.jsonl')
         report = compare_reports(args.compare[0], before, args.compare[1], after)
         print(report)
         (Path(args.compare[1]) / 'compare.md').write_text(report + '\n', encoding='utf-8')
         return
 
     if args.rejudge:
-        prompts = {row['id']: row for row in read_prompts(args.prompts)}
         responses = args.out or args.prompts.parent
-        rows = []
-        for line in (responses / 'responses.jsonl').read_text(encoding='utf-8').splitlines():
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            source = prompts.get(record['id'])
-            if not source:
-                raise SystemExit(f'{record["id"]}: 프롬프트를 찾을 수 없습니다.')
-            metrics = judge(source, record['response'])
-            record['metrics'] = metrics
-            record['failed'] = [name for name, value in metrics.items() if not value['ok'] and not value.get('skipped')]
-            rows.append(record)
-        (responses / 'responses.jsonl').write_text(''.join(json.dumps(record, ensure_ascii=False) + '\n' for record in rows), encoding='utf-8')
-        write_report(responses, rows, args, rejudged_from=args.prompts)
+        rows = rejudge_records(responses, read_prompts(args.prompts), judgment)
+        write_report(responses, rows, rejudged=True)
         print('재채점 완료:', responses / 'summary.md')
         return
 
@@ -136,6 +132,7 @@ def main():
         rows = [row for row in rows if row['characterId'] in wanted]
         if not rows:
             raise SystemExit('선택한 캐릭터의 프롬프트가 없습니다.')
+    config = generation_settings(args)
     model, tokenizer = load_probe_model(args.model, args.revision, args.adapter, args.device)
     out_dir = args.out or args.prompts.parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -145,48 +142,80 @@ def main():
     done = 0
     with responses.open('w', encoding='utf-8') as handle:
         for row in rows:
+            digest = prompt_digest(row['messages'])
             for sample in range(args.samples):
+                seed = SEED + sample
                 text, prompt_tokens, seconds, hit_limit = generate(model, tokenizer, row['messages'], args.device,
-                                                                   args.max_new_tokens, seed=42 + sample)
-                metrics = judge(row, text)
-                failed = [name for name, value in metrics.items() if not value['ok'] and not value.get('skipped')]
+                                                                   args.max_new_tokens, seed=seed)
                 record = {'id': row['id'], 'characterId': row['characterId'], 'register': row['register'], 'questionId': row['questionId'],
                           'sample': sample, 'question': row['question'], 'promptChars': row['promptChars'], 'promptTokens': prompt_tokens,
-                          'response': text, 'metrics': metrics, 'failed': failed, 'hit_token_limit': hit_limit, 'seconds': seconds,
-                          'adapter': str(args.adapter) if args.adapter else None}
+                          'response': text, 'hit_token_limit': hit_limit, 'seconds': seconds,
+                          'seed': seed, 'generation': config, 'prompt_sha256': digest, **judgment(row, text)}
                 handle.write(json.dumps(record, ensure_ascii=False) + '\n')
                 handle.flush()
                 records_seen.append(record)
                 done += 1
+                failed = record['failed']
                 print(f"[{done}/{total}] {row['id']}#{sample} {'OK' if not failed else ','.join(failed)} ({seconds}s)", flush=True)
 
-    write_report(out_dir, records_seen, args)
+    write_report(out_dir, records_seen)
     print('저장:', responses, out_dir / 'summary.md')
 
 
 METRICS = ['register', 'decoration', 'sentences', 'narrator', 'identity', 'echo', 'invented']
 
 
-def rates(rows):
-    judged = len(rows)
-    return {name: sum(1 for row in rows if not row['metrics'].get(name, {'ok': True})['ok'] and not row['metrics'].get(name, {}).get('skipped'))
-            for name in METRICS} | {'judged': judged, 'clean': sum(1 for row in rows if not row['failed'])}
+def rates(rows, name):
+    eligible = [row['metrics'][name] for row in rows if not row['metrics'][name].get('skipped')]
+    return sum(not item['ok'] for item in eligible), len(eligible)
+
+
+def percentage(count, judged):
+    return f'{count / judged:.0%}' if judged else '—'
+
+
+def sample_set(rows):
+    if not rows:
+        raise ValueError('cannot compare an empty report')
+    ids = set()
+    seeds = set()
+    pairs = {}
+    for row in rows:
+        key = row['characterId'], row['questionId'], row['sample']
+        row_id = row['id'], row['sample']
+        if type(row['sample']) is not int or row['sample'] < 0:
+            raise ValueError(f'invalid sample index: {key}')
+        if key in pairs or row_id in ids:
+            raise ValueError(f'duplicate sample: {key}')
+        if type(row.get('seed')) is not int:
+            raise ValueError(f'{key}: missing recorded generation seed')
+        draw = row['id'], row['seed']
+        if draw in seeds:
+            raise ValueError(f'duplicate seeded draw: {draw}')
+        seeds.add(draw)
+        ids.add(row_id)
+        pairs[key] = (row['id'], row['question'], row['seed'])
+    return pairs
 
 
 def compare_reports(label_before, before, label_after, after):
-    left, right = rates(before), rates(after)
-    lines = ['# 말투 프로브 비교', '', f'- 이전: `{label_before}` ({left["judged"]}건)',
-             f'- 이후: `{label_after}` ({right["judged"]}건)', '',
-             '| 지표 | 이전 실패 | 이후 실패 | 이전 비율 | 이후 비율 |', '|---|---:|---:|---:|---:|']
+    if sample_set(before) != sample_set(after):
+        raise ValueError('different question/sample sets or seeds; select identical cohorts before comparing')
+    lines = ['# 말투 프로브 비교', '', f'- 이전: `{label_before}` ({len(before)}건)',
+             *generation_lines(before), '', f'- 이후: `{label_after}` ({len(after)}건)', *generation_lines(after), '',
+             '| 지표 | 이전 실패/판정 | 이후 실패/판정 | 이전 비율 | 이후 비율 |', '|---|---:|---:|---:|---:|']
     for name in METRICS:
-        lines.append(f'| {name} | {left[name]} | {right[name]} | {left[name] / max(left["judged"], 1):.0%} | {right[name] / max(right["judged"], 1):.0%} |')
-    lines.append(f'| 전부 통과 | {left["judged"] - left["clean"]} 실패 | {right["judged"] - right["clean"]} 실패 | '
-                 f'{1 - left["clean"] / max(left["judged"], 1):.0%} | {1 - right["clean"] / max(right["judged"], 1):.0%} |')
+        a, n = rates(before, name)
+        b, m = rates(after, name)
+        lines.append(f'| {name} | {a}/{n} | {b}/{m} | {percentage(a, n)} | {percentage(b, m)} |')
+    n = len(before)
+    a, b = (sum(bool(row['failed']) for row in group) for group in (before, after))
+    lines.append(f'| 한 지표 이상 실패 | {a}/{n} | {b}/{n} | {percentage(a, n)} | {percentage(b, n)} |')
     lines += ['', '한두 건 차이는 표본 잡음일 수 있다. 지표율과 원문 답변을 함께 보고 판단한다.']
     return '\n'.join(lines)
 
 
-def write_report(out_dir, rows, args, rejudged_from=None):
+def write_report(out_dir, rows, rejudged=False):
     totals = {}
     for record in rows:
         bucket = totals.setdefault(record['characterId'], {'n': 0, 'clean': 0, 'fails': {}, 'seconds': 0.0})
@@ -196,25 +225,23 @@ def write_report(out_dir, rows, args, rejudged_from=None):
         for name in record['failed']:
             bucket['fails'][name] = bucket['fails'].get(name, 0) + 1
     lines = ['# 말투 프로브 결과', '',
-             ('재채점: 저장된 답변을 현재 지표로 다시 채점' if rejudged_from else '새 생성'), '',
-             f"- 모델: `{args.model}` @ `{args.revision}`" + (f' + 어댑터 `{args.adapter}`' if args.adapter else ''),
+             ('재채점: 저장된 답변을 현재 지표로 다시 채점' if rejudged else '새 생성'), '',
+             *generation_lines(rows),
              '- 프롬프트: 앱의 `chatMessagesFor()`가 조립한 카드+예시(실제 대사)+질문',
-             f"- 샘플링: seed 42..{41 + args.samples}, temperature 0.6, top_p 0.9, 최대 {args.max_new_tokens}토큰"
-             + (f", 프롬프트당 {args.samples}표본" if args.samples > 1 else ''),
              '- 판정은 휴리스틱이다. `sentences`는 캐릭터별 기대 범위(예시 리듬에서 파생)와 비교한다. '
              '원문 답변(`responses.jsonl`)을 함께 보고 판단한다. 앱 모델(Gemma 4 LiteRT) 결과가 아니다.', '',
              '| 캐릭터 | 건수 | 전부 통과 | 실패 지표 | 평균 초 |', '|---|---:|---:|---|---:|']
     for character, bucket in totals.items():
         fails = ', '.join(f'{name} {count}' for name, count in sorted(bucket['fails'].items())) or '—'
         lines.append(f"| {character} | {bucket['n']} | {bucket['clean']} | {fails} | {bucket['seconds'] / bucket['n']:.1f} |")
-    overall = {name: sum(bucket['fails'].get(name, 0) for bucket in totals.values())
-               for name in ['register', 'decoration', 'sentences', 'narrator', 'identity', 'echo', 'invented']}
     lines += ['', '## 지표별 실패 수', '', '| 지표 | 실패 | 판정 수 | 실패율 |', '|---|---:|---:|---:|']
-    judged = sum(bucket['n'] for bucket in totals.values())
-    lines += [f'| {name} | {count} | {judged} | {count / judged:.0%} |' for name, count in overall.items()]
+    for name in METRICS:
+        count, judged = rates(rows, name)
+        lines.append(f'| {name} | {count} | {judged} | {percentage(count, judged)} |')
     lines += ['', '## 답변', '']
     for record in rows:
-        lines.append(f"### {record['id']} ({record['register']})" + (f" 실패: {', '.join(record['failed'])}" if record['failed'] else ' 통과'))
+        lines.append(f"### {record['id']}#{record.get('sample', 0)} ({record['metrics']['register']['expected']})"
+                     + (f" 실패: {', '.join(record['failed'])}" if record['failed'] else ' 통과'))
         lines.append(f"- 질문: {record['question']}")
         lines.append(f"- 답변: {record['response']}")
         lines.append('')

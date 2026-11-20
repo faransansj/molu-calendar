@@ -45,8 +45,10 @@ export interface ChatMessage {
   time: string;
   status: MessageStatus;
   speakerType: SpeakerType;
+  speakerId: string;
   sourceKind: SourceKind;
   createdAt: number;
+  replyToMessageId: string | null;
 }
 export interface RoomCache {
   roomId: string;
@@ -92,17 +94,24 @@ export type MemoryPatch = Partial<
 >;
 export interface WriteCondition {
   expectedRevision?: number;
-  expectedLastMessageId?: string;
+  expectedLastMessageId?: string | null;
+  expectedGeneration?: string;
+  signal?: AbortSignal;
 }
 export interface RecordCounts {
   rooms: number;
   messages: number;
   memories: number;
 }
-export interface Reference {
-  id: string;
-  text: string;
-}
+type SourceReference = Pick<
+  ChatMessage,
+  "id" | "text" | "speakerType" | "speakerId" | "sourceKind"
+>;
+export type QuoteReference = SourceReference & { kind: "quote" };
+export type Reference =
+  | { id: string; text: string; kind: "user-confirmed" }
+  | (SourceReference & { kind: "edited-note" })
+  | QuoteReference;
 export interface PromptMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -110,8 +119,7 @@ export interface PromptMessage {
 export type ConversationMessage = PromptMessage & {
   role: "user" | "assistant";
 };
-export interface PromptHistory {
-  me: boolean;
-  text: string;
-  pending?: boolean;
-}
+export type PromptHistory = Pick<
+  ChatMessage,
+  "id" | "text" | "speakerType" | "sourceKind" | "status" | "replyToMessageId"
+>;

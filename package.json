@@ -18,7 +18,7 @@
     "calendar:init": "node tools/calendar-data.ts init",
     "calendar:export": "node tools/calendar-data.ts export",
     "calendar:upload": "node tools/calendar-data.ts upload",
-    "test": "vitest run",
+    "test": "vitest run && node --test training/lora/probes.test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",

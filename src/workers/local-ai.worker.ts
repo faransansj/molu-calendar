@@ -11,8 +11,6 @@ import {
 } from "../lib/ai/models.ts";
 import {
   chatMessagesWithReferences,
-  normalizeMemories,
-  normalizeExcerpts,
   referenceChars,
 } from "../lib/ai/persona.ts";
 import { inspectEnvironment } from "../lib/ai/client.ts";
@@ -21,7 +19,7 @@ import {
   deleteModelCaches,
   loadModelStream,
 } from "../lib/ai/model-cache.ts";
-import type { PromptMessage } from "../lib/chat/types.ts";
+import { measurePrompt } from "../lib/chat/prompt.ts";
 import {
   parseWorkerRequest,
   errorCode,
@@ -74,6 +72,12 @@ self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
     } else if (data.action === "load") {
       const model = modelById(modelId);
       if (!model) throw new Error("지원하지 않는 모델입니다.");
+      // A missing model in chat is a preparation notice, even on a device
+      // without WebGPU. Read the actual entry, not a previous settings scan.
+      const cachedStream =
+        data.mode === "cache-only"
+          ? await loadModelStream(model, emit, { mode: "cache-only" })
+          : null;
       // The Worker's adapter may differ from the page's adapter. Check the selected engine only.
       const environment = await inspectEnvironment();
       const runtime = environment.engines[model.engine];
@@ -89,7 +93,7 @@ self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
       {
         emit("progress", {
           progress: 0.02,
-          text: "LiteRT-LM 실행 파일·WebGPU 초기화 중 (모델 다운로드 전)",
+          text: "LiteRT-LM 실행 파일·WebGPU 초기화 중",
         });
         if (!liteRuntime) {
           const assetURL = new URL(
@@ -101,19 +105,24 @@ self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
           liteRuntime = await getOrLoadGlobalLiteRtLm(assetURL);
         }
         await liteRuntime.setupDefaultWebGpuDevice();
-        const stream = await loadModelStream(model, (event, value = {}) =>
-          emit(
-            event,
-            event === "progress" &&
-              typeof value.progress === "number" &&
-              Number.isFinite(value.progress)
-              ? { ...value, progress: 0.1 + value.progress * 0.8 }
-              : value,
-          ),
-        );
+        const stream =
+          cachedStream ??
+          (await loadModelStream(
+            model,
+            (event, value = {}) =>
+              emit(
+                event,
+                event === "progress" &&
+                  typeof value.progress === "number" &&
+                  Number.isFinite(value.progress)
+                  ? { ...value, progress: 0.1 + value.progress * 0.8 }
+                  : value,
+              ),
+            { mode: data.mode },
+          ));
         emit("progress", {
           progress: 0.95,
-          text: "캐시에서 GPU로 모델 준비 중 · 다운로드 완료",
+          text: "캐시에서 GPU로 모델 준비 중",
         });
         engine = await LiteRTEngine.create({
           model: stream,
@@ -127,41 +136,25 @@ self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
     } else if (data.action === "generate") {
       if (!engine || !loaded) throw new Error("먼저 모델을 로드해 주세요.");
       const { messages, maxTokens } = data;
-      if (
-        !Array.isArray(messages) ||
-        !messages.length ||
-        messages.length > 9 ||
-        messages.some(
-          (message) =>
-            !message ||
-            !["user", "assistant"].includes(message.role) ||
-            typeof message.content !== "string" ||
-            message.content.length > 2000,
-        ) ||
-        messages.at(-1)!.role !== "user" ||
-        messages.reduce((sum, message) => sum + message.content.length, 0) >
-          6000 ||
-        !Number.isInteger(maxTokens) ||
-        maxTokens < 1 ||
-        maxTokens > 256
-      )
-        throw new Error("테스트 입력이 허용 범위를 벗어났습니다.");
       // Only a built-in persona can become a system message, and its few-shot examples come from the dataset.
       // A client cannot supply its own system prompt or examples.
-      let chatMessages: PromptMessage[] = messages;
-      if (data.characterId !== undefined) {
-        const memories = normalizeMemories(data.memories);
-        const excerpts = normalizeExcerpts(data.excerpts);
-        const assembled = chatMessagesWithReferences(
-          data.characterId,
-          messages,
-          memories,
-          excerpts,
-        );
-        if (!assembled) throw new Error("지원하지 않는 테스트 캐릭터입니다.");
-        chatMessages = assembled;
+      const { characterId, memories = [], excerpts = [] } = data;
+      const chatMessages =
+        characterId === undefined
+          ? messages
+          : chatMessagesWithReferences(
+              characterId,
+              messages,
+              memories,
+              excerpts,
+            );
+      if (!chatMessages) throw new Error("지원하지 않는 캐릭터입니다.");
+      const measurement = measurePrompt(chatMessages);
+      if (!measurement.fits)
+        throw new Error("프롬프트가 모델의 입력 예산을 초과했습니다.");
+      if (characterId !== undefined) {
         emit("trace", {
-          characterId: data.characterId,
+          characterId,
           messageChars: messages.reduce(
             (sum, message) => sum + message.content.length,
             0,
@@ -169,10 +162,7 @@ self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
           memories: memories.length,
           excerpts: excerpts.length,
           referenceChars: referenceChars(memories, excerpts),
-          promptChars: chatMessages.reduce(
-            (sum, message) => sum + message.content.length,
-            0,
-          ),
+          promptChars: measurement.promptChars,
         });
       }
       const started = performance.now();
@@ -202,8 +192,10 @@ self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
           prefillPrefaceOnInit: false,
         });
         try {
+          const { role, content } = chatMessages.at(-1)!;
           for await (const chunk of conversation.sendMessageStreaming({
-            ...messages.at(-1)!,
+            role,
+            content,
           })) {
             const delta =
               typeof chunk.content === "string"

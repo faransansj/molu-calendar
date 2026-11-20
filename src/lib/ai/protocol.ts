@@ -1,16 +1,28 @@
 import { z } from "zod";
-import type { ConversationMessage, Reference } from "../chat/types.ts";
+import type {
+  ConversationMessage,
+  QuoteReference,
+  Reference,
+} from "../chat/types.ts";
+import { memoriesSchema, excerptsSchema } from "./persona.ts";
+import {
+  MOMO_HISTORY_TURNS,
+  MOMO_MESSAGE_MAX,
+  OUTPUT_RESERVE,
+} from "../chat/prompt.ts";
+
+export type LoadMode = "cache-only" | "download";
 
 export interface WorkerPayloads {
   cache: object;
   delete: { modelId: string };
-  load: { modelId: string };
+  load: { modelId: string; mode: LoadMode };
   generate: {
     messages: ConversationMessage[];
     maxTokens: number;
     characterId?: string;
     memories?: Reference[];
-    excerpts?: Reference[];
+    excerpts?: QuoteReference[];
   };
 }
 export interface CacheResult {
@@ -34,10 +46,13 @@ export type WorkerAction = keyof WorkerPayloads;
 export type WorkerRequest = {
   [K in WorkerAction]: { id: number; action: K } & WorkerPayloads[K];
 }[WorkerAction];
-const referenceSchema = z.object({ id: z.string(), text: z.string() }).strict();
-const conversationSchema = z.object({
+const conversationSchema = z.strictObject({
   role: z.enum(["user", "assistant"]),
-  content: z.string(),
+  content: z
+    .string()
+    .min(1)
+    .max(MOMO_MESSAGE_MAX)
+    .refine((text) => !!text.trim()),
 });
 const requestId = z.number().int().positive();
 const requestSchema = z.discriminatedUnion("action", [
@@ -47,15 +62,30 @@ const requestSchema = z.discriminatedUnion("action", [
     action: z.literal("delete"),
     modelId: z.string(),
   }),
-  z.object({ id: requestId, action: z.literal("load"), modelId: z.string() }),
+  z.object({
+    id: requestId,
+    action: z.literal("load"),
+    modelId: z.string(),
+    mode: z.enum(["cache-only", "download"]),
+  }),
   z.object({
     id: requestId,
     action: z.literal("generate"),
-    messages: z.array(conversationSchema),
-    maxTokens: z.number(),
+    messages: z
+      .array(conversationSchema)
+      .min(1)
+      .max(2 * MOMO_HISTORY_TURNS + 1)
+      .refine(
+        (messages) =>
+          messages.length % 2 === 1 &&
+          messages.every(
+            ({ role }, i) => role === (i % 2 === 0 ? "user" : "assistant"),
+          ),
+      ),
+    maxTokens: z.number().int().min(1).max(OUTPUT_RESERVE),
     characterId: z.string().optional(),
-    memories: z.array(referenceSchema).optional(),
-    excerpts: z.array(referenceSchema).optional(),
+    memories: memoriesSchema.optional(),
+    excerpts: excerptsSchema.optional(),
   }),
 ]);
 export function parseWorkerRequest(value: unknown): WorkerRequest {

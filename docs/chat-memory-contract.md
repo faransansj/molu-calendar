@@ -2,9 +2,8 @@
 
 ## Storage
 
-IndexedDB is authoritative. The `molu-chat-memory` database uses schema version 2
-with `rooms`, `messages` and `memories`. There is no localStorage transcript
-migration or schema-v1 compatibility path.
+IndexedDB is authoritative. Schema v3 upgrades v2 in place; chat backups remain
+v2. Restore generations are local concurrency controls and are never exported.
 
 - Messages have stable IDs, per-room sequence numbers, speaker/source attribution,
   original text, epoch-millisecond timestamps and an optional reply target.
@@ -12,25 +11,33 @@ migration or schema-v1 compatibility path.
   does not establish a user fact.
 - Opening a room never inserts a scripted greeting. New character replies are
   completed LLM outputs only. Preserve historical source attribution and records.
-- Persist user questions before generation and completed replies only. Partial
-  streaming output is temporary. Cancellation, failure and retry retain the same
-  question ID. Reject stale replies after deletion or replacement.
+- Model acquisition at send time is cache-only. On a miss keep the draft and
+  direct the user to settings. Persist the question before generation and only
+  persist a completed reply; never save a partial stream. Retry uses the stored
+  question's ID **and its persisted text**, not the visible page's last text.
+  Plan before appending the question: a draft that exceeds the model context
+  remains editable. “새 질문 작성” starts a new turn without deleting the old
+  unanswered question and checks that another tab has not already answered it.
 - IndexedDB transaction completion is the write boundary. Request success is
   provisional. Surface storage failures, block sending and expose explicit retry.
 - Close connections on version changes and surface blocked opens. Do not silently
   fall back to another storage mechanism.
-- Room/whole-transcript deletion also removes associated memories. Current-format
-  version-2 backups validate fields, identifiers, order and references before an
-  atomic replacement. Unsupported formats are rejected.
-- A browser Web Lock serializes sends per room. BroadcastChannel notifications
-  refresh other tabs. Replies atomically check their target question ID.
+- Saving the first manual memory creates its room atomically. Room deletion
+  removes memories even if an older version did not create a room. Import and
+  export enforce the same 32 MiB UTF-8 limit, not a JavaScript character limit.
+- A Web Lock serializes sends per room. Before committing a reply check both
+  its target question and the generation in which it was started. Restoring a
+  backup with identical IDs must not revalidate a stale reply. Broadcasts
+  invalidate other tabs' messages and the currently displayed memory list.
 
 ## Explicit memory
 
 Memories are private to a room. Only an explicit user action saves or edits a
-memory. Model output never becomes a saved memory automatically. Disabled or
-expired memories are excluded from model input. Keep source message IDs and
-source text when saving from a transcript.
+memory. Model output never becomes a saved fact automatically. Disabled and
+expired memories suppress their source messages in both excerpts and prompt
+history. This is not transcript erasure: messages remain visible in the room.
+The current user question is never silently changed. Retain excerpt attribution.
+Use the open room's ID for storage, never a fallback display character's ID.
 
 ## Shared settings
 
@@ -67,11 +74,13 @@ and restricted CSP download hosts.
   per item and 800 characters total. Skip current/recent messages, duplicate IDs,
   empty text and over-budget candidates before counting selected items; preserve
   candidate order and continue to later candidates when a slot remains.
-- Validate the Worker request and reference DTOs. Only built-in personas and
-  dataset examples can become system messages.
-- The character budget is a heuristic, not an exact tokenizer count. Model quality
-  and GPU compatibility require actual browser inference. Python/Qwen probes and
-  mock engines do not establish operation of the app's Gemma/LiteRT backend.
+- Only the built-in persona is a system instruction. Put attributed reference
+  data in the user turn, not in a second system message.
+- Count the assembled message content, including quoted references and labels,
+  against the character limit. Separately enforce a conservative token bound for
+  the pinned Gemma tokenizer and chat template, reserving 256 output tokens.
+  This is a capacity check, not a prediction of actual token use or quality.
+  Python/Qwen probes do not establish operation of the browser backend.
 
 ## Model cache and generation deadlines
 
@@ -80,9 +89,11 @@ and restricted CSP download hosts.
   the response. The browser may still stage Blobs or temporary disk copies.
 - A cache hit requires a response body and the pinned `Content-Length`.
   Inspection is metadata-only, not a complete byte/hash integrity check, and is
-  read-only. Loading deletes invalid metadata before downloading again.
-- On a miss, reject with `storage_low` only when finite origin quota/usage
-  estimates leave less than the artifact size plus 512 MiB. Unavailable estimates
+  read-only. Cache-only loads must never fetch, including when another tab has
+  deleted or invalidated the entry. Only explicit preparation may replace an
+  invalid entry or download on a miss. Reject with `storage_low` only when
+  finite origin quota/usage estimates leave less than the artifact size plus
+  512 MiB. Unavailable estimates
   do not block downloading. Origin quota is not physical free disk space; passing
   this check does not guarantee a successful write.
 - Require exact byte count at EOF, completed `Cache.put`, and a valid cache
@@ -92,9 +103,9 @@ and restricted CSP download hosts.
   `model_size_mismatch`, even if `Cache.put` reports another error. Quota failures
   use `storage_low`; other write failures use `cache_write_failed`. Consumer
   cancellation from a failed put must not become a download failure.
-- Failed downloads cancel the reader and delete only the failed artifact, with
-  cleanup errors never replacing the original failure. Explicit model deletion
-  removes current and previous revisions of the same repository/model only.
+- Download and deletion serialize on the same model lock across tabs. Failed
+  downloads cancel their own reader, not another writer's committed model.
+  Explicit deletion removes current and previous revisions of that model only.
   Successful deletion also clears that model's in-memory readiness; settings must
   not report ready after its cache is gone. Neither path deletes conversations or
   memories.
@@ -129,3 +140,18 @@ IndexedDB persistence, then a revisit with no pinned-model GET. Check interrupti
 retry, tab hiding and explicit model deletion separately. If physical space is
 insufficient, report GPU/cache-success verification as blocked; an origin quota
 estimate or a small Cache API smoke does not establish multi-GB cache success.
+
+Run `uv run tools/test_chat_browser.py http://127.0.0.1:8787` against a local
+production preview for a GPU-independent, two-tab memory/backup regression.
+For real-model measurements:
+
+```sh
+uv run tools/probe_browser_gemma.py http://127.0.0.1:8787 --headed --executable /path/to/chromium
+```
+
+Use a Playwright Firefox installation with `--browser firefox` to repeat there.
+The probe uses a fresh browser context, downloads through settings, reads back
+the committed bytes and reports actual Korean replies, time to first visible
+text, transcript persistence, cold/warm network requests, stop/retry and explicit
+model deletion. Inspect the answer to the unknown-memory question; a Korean
+response or fast completion is not a semantic quality pass.

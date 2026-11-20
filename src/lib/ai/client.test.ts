@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { LocalAIClient } from "./client.ts";
+import { parseWorkerRequest } from "./protocol.ts";
 import type { WorkerRequest } from "./protocol.ts";
 
 function setup() {
@@ -39,6 +40,32 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("local AI model readiness", () => {
+  it("requires explicit load intent and preserves a cache-only miss", async () => {
+    const request = { id: 1, action: "load", modelId: "loaded-model" };
+    expect(() => parseWorkerRequest(request)).toThrow();
+    expect(() => parseWorkerRequest({ ...request, mode: "auto" })).toThrow();
+    const { client, workers } = setup();
+    const loading = client.request("load", {
+      modelId: request.modelId,
+      mode: "cache-only",
+    });
+    const worker = workers[0]!;
+    expect(parseWorkerRequest(worker.postMessage.mock.lastCall![0])).toEqual({
+      ...request,
+      mode: "cache-only",
+    });
+    worker.onmessage!({
+      data: {
+        id: request.id,
+        done: true,
+        error: { code: "model_not_cached", message: "준비가 필요해요." },
+      },
+    } as MessageEvent);
+    await expect(loading).rejects.toMatchObject({ code: "model_not_cached" });
+    expect(client.loaded).toBeNull();
+    expect(worker.postMessage).toHaveBeenCalledOnce();
+  });
+
   it.each(["loaded-model", "other-model"])(
     "invalidates readiness only when deleting the loaded artifact (%s)",
     async (deletedModel) => {
@@ -50,7 +77,10 @@ describe("local AI model readiness", () => {
           data: { id: request.id, done: true, result },
         } as MessageEvent);
       };
-      const loading = client.request("load", { modelId: "loaded-model" });
+      const loading = client.request("load", {
+        modelId: "loaded-model",
+        mode: "download",
+      });
       finish({ loadMs: 1 });
       await loading;
       expect(client.loaded).toBe("loaded-model");
@@ -62,7 +92,10 @@ describe("local AI model readiness", () => {
         deletedModel === "loaded-model" ? null : "loaded-model",
       );
 
-      const reloading = client.request("load", { modelId: "loaded-model" });
+      const reloading = client.request("load", {
+        modelId: "loaded-model",
+        mode: "cache-only",
+      });
       finish({ loadMs: 1 });
       await reloading;
       expect(client.loaded).toBe("loaded-model");

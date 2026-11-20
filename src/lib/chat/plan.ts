@@ -1,32 +1,81 @@
 import type { ChatMessage, ChatTranscript } from "./transcript.ts";
-import { selectMemories, selectExcerpts } from "./memory.ts";
-import { momoPromptPlan } from "./prompt.ts";
-import { promptCharsFor } from "../ai/persona.ts";
+import type { Reference } from "./types.ts";
+import {
+  MESSAGE_SCAN_LIMIT,
+  QUERY_MAX_LENGTH,
+  selectMemories,
+  selectExcerpts,
+} from "./memory.ts";
+import {
+  completedExchanges,
+  momoPromptPlan,
+  momoSupportsAI,
+  MOMO_HISTORY_TURNS,
+} from "./prompt.ts";
 
 export async function planChatPrompt(
-  store: Pick<ChatTranscript, "memories" | "searchRoom" | "retryTarget">,
+  store: Pick<ChatTranscript, "memories" | "searchRoom" | "sourceMessage">,
   roomId: string,
   text: string,
   history: ChatMessage[],
+  currentId: string,
+  signal?: AbortSignal,
 ) {
-  const fixed = promptCharsFor(roomId);
-  if (!fixed) throw new Error("지원하지 않는 AI 캐릭터예요.");
-  const query = text.slice(0, 200);
-  const memories = selectMemories(await store.memories(roomId), {
-    roomId,
-    query,
-  }).map(({ id, text }) => ({ id, text }));
-  const excerpts = selectExcerpts(
-    await store.searchRoom(roomId, { query, limit: 10 }),
-    {
-      currentId: store.retryTarget(roomId)?.id,
-      recentIds: history.slice(-8).map((message) => message.id),
-    },
+  signal?.throwIfAborted();
+  if (!momoSupportsAI(roomId)) throw new Error("지원하지 않는 AI 캐릭터예요.");
+  const query = text.slice(0, QUERY_MAX_LENGTH).trim();
+  const rows = await store.memories(roomId);
+  signal?.throwIfAborted();
+  const now = Date.now();
+  const excludedIds = new Set([currentId]);
+  for (const row of rows) {
+    if (
+      row.roomId === roomId &&
+      row.sourceMessageId &&
+      (!row.enabled || (row.expiresAt !== null && row.expiresAt <= now))
+    )
+      excludedIds.add(row.sourceMessageId);
+  }
+  const candidates = selectMemories(
+    rows.filter(
+      (row) => !row.sourceMessageId || !excludedIds.has(row.sourceMessageId),
+    ),
+    { roomId, query, now },
   );
+  const recentIds = completedExchanges(history, excludedIds)
+    .slice(-MOMO_HISTORY_TURNS)
+    .flatMap(({ question, answer }) => [question.id, answer.id]);
+  const memories: Reference[] = [];
+  for (const { id, text, sourceMessageId } of candidates) {
+    if (!sourceMessageId) {
+      memories.push({ id, text, kind: "user-confirmed" });
+      continue;
+    }
+    const source = await store.sourceMessage(roomId, sourceMessageId);
+    signal?.throwIfAborted();
+    if (!source || source.status !== "complete") continue;
+    // An edited memo is the user's note about the source, not a verbatim utterance.
+    memories.push({
+      id,
+      text,
+      kind: source.text.includes(text) ? "quote" : "edited-note",
+      speakerType: source.speakerType,
+      speakerId: source.speakerId,
+      sourceKind: source.sourceKind,
+    });
+    recentIds.push(sourceMessageId);
+  }
+  const hits = await store.searchRoom(roomId, {
+    query,
+    limit: MESSAGE_SCAN_LIMIT,
+  });
+  signal?.throwIfAborted();
+  const excerpts = selectExcerpts(hits, { currentId, recentIds, excludedIds });
   const plan = momoPromptPlan({
     history,
     text,
-    fixedChars: fixed.system + fixed.examples,
+    characterId: roomId,
+    excludedIds,
     memories,
     excerpts,
   });

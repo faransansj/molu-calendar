@@ -1,9 +1,25 @@
 import { LITERT_CACHE, MODELS, errorWithCode, modelURL } from "./models.ts";
 import type { Model } from "./models.ts";
-import type { AIEvent, CacheResult, EventValue } from "./protocol.ts";
+import type { AIEvent, CacheResult, EventValue, LoadMode } from "./protocol.ts";
 
 interface CacheOptions {
   caches?: CacheStorage;
+}
+
+interface ArtifactLocks {
+  request<T>(name: string, task: () => Promise<T>): Promise<T>;
+}
+
+// Deletion covers every revision of this artifact. Writers in other tabs and
+// Workers must use the same name even when their pinned revisions differ.
+function withArtifactLock<T>(
+  model: Model,
+  locks: ArtifactLocks | undefined,
+  task: () => Promise<T>,
+) {
+  if (!locks)
+    throw new Error("이 브라우저에서 모델 저장 잠금을 사용할 수 없습니다.");
+  return locks.request(`${LITERT_CACHE}:${model.id}`, task);
 }
 
 // Metadata only: this does not re-read or hash the complete cached artifact.
@@ -38,13 +54,18 @@ export async function inspectModelCaches({
 
 export async function deleteModelCaches({
   caches: cacheStorage = globalThis.caches,
+  locks = globalThis.navigator?.locks,
   modelId,
-}: CacheOptions & { modelId: string }): Promise<CacheResult> {
+}: CacheOptions & {
+  modelId: string;
+  locks?: ArtifactLocks;
+}): Promise<CacheResult> {
   const model = MODELS.find((item) => item.id === modelId);
   if (!model) throw new Error("지원하지 않는 모델입니다.");
   if (!cacheStorage)
     throw new Error("이 브라우저에서 모델 캐시를 사용할 수 없습니다.");
-  if ((await cacheStorage.keys()).includes(LITERT_CACHE)) {
+  await withArtifactLock(model, locks, async () => {
+    if (!(await cacheStorage.keys()).includes(LITERT_CACHE)) return;
     const cache = await cacheStorage.open(LITERT_CACHE);
     const current = new URL(modelURL(model));
     const repository = current.pathname.slice(
@@ -64,11 +85,12 @@ export async function deleteModelCaches({
       )
         await cache.delete(request);
     }
-  }
+  });
   return inspectModelCaches({ caches: cacheStorage });
 }
 
 const messages = {
+  model_not_cached: "설정에서 먼저 로컬 AI 모델을 준비해 주세요.",
   storage_low:
     "모델을 저장할 공간이 부족해요. 기기 저장 공간을 확보한 뒤 다시 시도해 주세요.",
   download_failed:
@@ -85,18 +107,41 @@ export async function loadModelStream(
   model: Model,
   emit: (event: AIEvent["event"], value?: EventValue) => void,
   {
+    mode,
     caches: cacheStorage = globalThis.caches,
     fetch: fetchModel = globalThis.fetch,
     storage = globalThis.navigator?.storage,
+    locks = globalThis.navigator?.locks,
   }: CacheOptions & {
+    mode: LoadMode;
     fetch?: typeof globalThis.fetch;
     storage?: Pick<StorageManager, "estimate">;
-  } = {},
+    locks?: ArtifactLocks;
+  },
 ): Promise<ReadableStream<Uint8Array>> {
   if (!cacheStorage)
     throw new Error("이 브라우저에서 모델 캐시를 사용할 수 없습니다.");
-  const cache = await cacheStorage.open(LITERT_CACHE);
   const url = modelURL(model);
+  // CacheStorage.match does not even create an empty named cache on a miss.
+  if (mode === "cache-only") {
+    const cached = await cacheStorage.match(url, { cacheName: LITERT_CACHE });
+    if (!validResponse(cached, model)) throw failure("model_not_cached");
+    return cached.body;
+  }
+  return withArtifactLock(model, locks, async () => {
+    const cache = await cacheStorage.open(LITERT_CACHE);
+    return downloadOrReuse(cache, model, url, emit, fetchModel, storage);
+  });
+}
+
+async function downloadOrReuse(
+  cache: Cache,
+  model: Model,
+  url: string,
+  emit: (event: AIEvent["event"], value?: EventValue) => void,
+  fetchModel: typeof globalThis.fetch,
+  storage: Pick<StorageManager, "estimate"> | undefined,
+) {
   const cached = await cache.match(url);
   if (validResponse(cached, model)) return cached.body;
   if (cached) await cache.delete(url);
@@ -205,21 +250,20 @@ export async function loadModelStream(
     } catch (cause) {
       throw failure("cache_write_failed", cause);
     }
-    if (!complete || !validResponse(response, model))
+    if (!complete || !validResponse(response, model)) {
+      // Only this successful put could have created the invalid entry: the
+      // model lock is still held. Rejected puts are atomic and need no delete.
+      await cache.delete(url).catch(() => {});
       throw failure(
         "cache_write_failed",
         new Error("캐시 저장 완료를 확인하지 못했습니다."),
       );
+    }
     return response.body;
   } catch (error) {
     putFailed = true;
     try {
       await reader?.cancel();
-    } catch {
-      /* Preserve the original failure. */
-    }
-    try {
-      await cache.delete(url);
     } catch {
       /* Preserve the original failure. */
     }

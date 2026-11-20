@@ -36,6 +36,8 @@ function cacheFixture() {
   const caches = {
     keys: async () => [LITERT_CACHE],
     open: async () => cache,
+    match: (key: string, { cacheName }: { cacheName: string }) =>
+      cacheName === LITERT_CACHE ? cache.match(key) : undefined,
   } as unknown as CacheStorage;
   const fetch = vi.fn<typeof globalThis.fetch>(
     async () => new Response(new Uint8Array([1, 2, 3, 4])),
@@ -46,13 +48,114 @@ function cacheFixture() {
       headers: new Headers({ "Content-Length": String(length) }),
       body,
     });
-  return { entries, cache, caches, fetch, seed };
+  const queues = new Map<string, Promise<void>>();
+  const locks = {
+    request<T>(name: string, task: () => Promise<T>) {
+      const result = (queues.get(name) ?? Promise.resolve()).then(task);
+      queues.set(
+        name,
+        result.then(
+          () => {},
+          () => {},
+        ),
+      );
+      return result;
+    },
+  };
+  return {
+    entries,
+    cache,
+    caches,
+    fetch,
+    seed,
+    locks,
+    mode: "download" as const,
+  };
 }
 async function bytes(stream: ReadableStream<Uint8Array>) {
   return [...new Uint8Array(await new Response(stream).arrayBuffer())];
 }
 
 describe("model cache stream boundary (not GPU inference)", () => {
+  it.each(["absent", "invalid", "bodyless"])(
+    "cache-only reports a typed %s miss without download, deletion or quota checks",
+    async (state) => {
+      const fixture = cacheFixture();
+      if (state === "invalid") fixture.seed(url, 3);
+      if (state === "bodyless") fixture.seed(url, model.bytes, false);
+      const estimate = vi.fn();
+      await expect(
+        loadModelStream(model, vi.fn(), {
+          ...fixture,
+          mode: "cache-only",
+          storage: { estimate },
+        }),
+      ).rejects.toMatchObject({ code: "model_not_cached" });
+      expect(fixture.fetch).not.toHaveBeenCalled();
+      expect(fixture.cache.delete).not.toHaveBeenCalled();
+      expect(fixture.cache.put).not.toHaveBeenCalled();
+      expect(estimate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("cache-only reads the pinned entry but never follows a stale hit to the network", async () => {
+    const fixture = cacheFixture();
+    fixture.seed();
+    const options = { ...fixture, mode: "cache-only" as const };
+    expect(await bytes(await loadModelStream(model, vi.fn(), options))).toEqual(
+      [1, 2, 3, 4],
+    );
+    await fixture.cache.delete(url);
+    await expect(
+      loadModelStream(model, vi.fn(), options),
+    ).rejects.toMatchObject({
+      code: "model_not_cached",
+    });
+    expect(fixture.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rechecks a queued download after a different tab commits the artifact", async () => {
+    const fixture = cacheFixture();
+    const started = Promise.withResolvers<void>();
+    const download = Promise.withResolvers<Response>();
+    fixture.fetch.mockImplementationOnce(() => {
+      started.resolve();
+      return download.promise;
+    });
+    const first = loadModelStream(model, vi.fn(), fixture);
+    await started.promise;
+    const second = loadModelStream(model, vi.fn(), fixture);
+    download.resolve(new Response(new Uint8Array([1, 2, 3, 4])));
+    const streams = await Promise.all([first, second]);
+    expect(await Promise.all(streams.map(bytes))).toEqual([
+      [1, 2, 3, 4],
+      [1, 2, 3, 4],
+    ]);
+    expect(fixture.fetch).toHaveBeenCalledOnce();
+    expect(fixture.cache.put).toHaveBeenCalledOnce();
+  });
+
+  it("deletion waits for an in-flight write even across pinned revisions", async () => {
+    const fixture = cacheFixture();
+    const started = Promise.withResolvers<void>();
+    const download = Promise.withResolvers<Response>();
+    fixture.fetch.mockImplementationOnce(() => {
+      started.resolve();
+      return download.promise;
+    });
+    const loading = loadModelStream(
+      { ...model, revision: "previous" },
+      vi.fn(),
+      fixture,
+    );
+    await started.promise;
+    const deleting = deleteModelCaches({ ...fixture, modelId: model.id });
+    download.resolve(new Response(new Uint8Array([1, 2, 3, 4])));
+    await loading;
+    await deleting;
+    expect(fixture.entries.size).toBe(0);
+  });
+
   it("waits for EOF and cache commit, then reuses the identical bytes without a fetch or estimate", async () => {
     const fixture = cacheFixture();
     const { promise: commit, resolve: finish } = Promise.withResolvers<void>();
@@ -148,6 +251,8 @@ describe("model cache stream boundary (not GPU inference)", () => {
         ),
       );
       fixture.cache.put.mockImplementation(async (key, response) => {
+        // A valid entry from another writer is not a partial put. Rejection
+        // doesn't publish the failing response or grant ownership of this key.
         fixture.seed(key);
         const sink = response.body!.getReader();
         await sink.read();
@@ -161,7 +266,8 @@ describe("model cache stream boundary (not GPU inference)", () => {
         loadModelStream(model, () => {}, fixture),
       ).rejects.toMatchObject({ code, cause });
       expect(cancelled).toHaveBeenCalled();
-      expect(fixture.entries.has(url)).toBe(false);
+      expect(fixture.entries.has(url)).toBe(true);
+      expect(fixture.cache.delete).not.toHaveBeenCalled();
     },
   );
 

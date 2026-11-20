@@ -144,9 +144,7 @@ def execute(args):
                     command.append('--qlora')
                 training = state['stages'].get(candidate + '-train', {})
                 if training and training.get('status') != 'completed' and (path / 'run.json').exists():
-                    checkpoints = list((path / 'checkpoints').glob('checkpoint-*/trainer_state.json'))
-                    if not checkpoints:
-                        raise RuntimeError(f'{candidate}: interrupted before a checkpoint. Preserve logs and start a fresh loop directory.')
+                    # run.py selects and validates the exact checkpoint it passes to Trainer.
                     command.append('--resume')
                 run_stage(candidate + '-train', command, root, state, deadline)
                 run_stage(candidate + '-compare', [python, HERE / 'run.py', 'compare', '--run', path,

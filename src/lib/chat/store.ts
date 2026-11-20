@@ -16,7 +16,7 @@ function readRequest<T>(request: IDBRequest): IDBRequest<T> {
 }
 
 export const CHAT_DB_NAME = "molu-chat-memory";
-export const CHAT_DB_VERSION = 2;
+export const CHAT_DB_VERSION = 3;
 const SOURCES = new Set(["user-input", "model-output", "script", "app"]);
 const STATUSES = new Set([
   "complete",
@@ -40,7 +40,7 @@ const MEMORY_FIELDS = new Set([
   "enabled",
   "expiresAt",
 ]);
-const BUNDLE_MAX_BYTES = 32 * 1024 * 1024;
+export const BUNDLE_MAX_BYTES = 32 * 1024 * 1024;
 const BUNDLE_MAX_ROOMS = 2_000;
 const BUNDLE_MAX_MESSAGES = 100_000;
 const SPEAKER_TYPES = ["user", "character", "app"];
@@ -67,6 +67,39 @@ const MESSAGE_FIELDS = new Set([
   "createdAt",
   "replyToMessageId",
 ]);
+
+function exceedsBundleSize(text: string) {
+  return (
+    text.length > BUNDLE_MAX_BYTES ||
+    (text.length > BUNDLE_MAX_BYTES / 3 &&
+      new Blob([text]).size > BUNDLE_MAX_BYTES)
+  );
+}
+
+// A room deletion leaves a tombstone even for an empty room. A full replacement
+// discards all tombstones and changes the default generation for every room.
+function resetGenerations(tx: IDBTransaction) {
+  const generations = tx.objectStore("generations");
+  generations.clear();
+  generations.put(crypto.randomUUID(), "");
+}
+
+function readGeneration(
+  tx: IDBTransaction,
+  roomId: string,
+  done: (generation: string) => void,
+) {
+  const generations = tx.objectStore("generations");
+  const room = readRequest<string | undefined>(generations.get(roomId));
+  room.onsuccess = () => {
+    if (room.result !== undefined) {
+      done(room.result);
+      return;
+    }
+    const global = readRequest<string>(generations.get(""));
+    global.onsuccess = () => done(global.result);
+  };
+}
 
 function conflict(message: string) {
   const error = new Error(message);
@@ -99,7 +132,7 @@ function roomRecord(id: string): RoomRecord {
 // Backup files are validated strictly before a single atomic write. Unknown fields are version errors,
 // not silently dropped extensions: a newer format must bump BUNDLE_VERSION.
 export function parseChatBundle(raw: string): ChatBundle {
-  if (typeof raw !== "string" || raw.length > BUNDLE_MAX_BYTES)
+  if (typeof raw !== "string" || exceedsBundleSize(raw))
     throw new TypeError("백업 파일이 올바르지 않거나 너무 큽니다.");
   let parsed: ChatBundle;
   try {
@@ -147,8 +180,10 @@ export function parseChatBundle(raw: string): ChatBundle {
       Array.isArray(room) ||
       Object.keys(room).some((key) => !ROOM_FIELDS.has(key)) ||
       room.profileId !== "local" ||
+      typeof room.id !== "string" ||
       !room.id ||
       room.id.length > 256 ||
+      typeof room.characterId !== "string" ||
       !room.characterId ||
       room.characterId.length > 256 ||
       !Array.isArray(room.participants) ||
@@ -171,7 +206,7 @@ export function parseChatBundle(raw: string): ChatBundle {
       throw new TypeError("백업 파일에 중복된 대화방 ID가 있습니다.");
     rooms.set(room.id, room);
   }
-  const ids = new Set();
+  const messageById = new Map<string, MessageRecord>();
   const seqs = new Map<string, Set<number>>();
   const counts = new Map<string, number>();
   const lastIds = new Map<string, { seq: number; id: string }>();
@@ -185,9 +220,11 @@ export function parseChatBundle(raw: string): ChatBundle {
       message.profileId !== "local" ||
       !rooms.has(message.roomId) ||
       !SPEAKER_TYPES.includes(message.speakerType) ||
+      typeof message.id !== "string" ||
       !message.id ||
       message.id.length > 256 ||
-      ids.has(message.id) ||
+      messageById.has(message.id) ||
+      typeof message.speakerId !== "string" ||
       !message.speakerId ||
       message.speakerId.length > 256 ||
       typeof message.text !== "string" ||
@@ -208,7 +245,7 @@ export function parseChatBundle(raw: string): ChatBundle {
       throw new TypeError("백업 파일에 같은 방의 중복된 순서가 있습니다.");
     roomSeq.add(message.seq);
     seqs.set(message.roomId, roomSeq);
-    ids.add(message.id);
+    messageById.set(message.id, message);
     counts.set(
       message.roomId,
       (counts.get(message.roomId) ?? 0) +
@@ -217,6 +254,12 @@ export function parseChatBundle(raw: string): ChatBundle {
     if ((lastIds.get(message.roomId)?.seq ?? 0) < message.seq)
       lastIds.set(message.roomId, { seq: message.seq, id: message.id });
     messages.push(message);
+  }
+  for (const message of messages) {
+    if (message.replyToMessageId === null) continue;
+    const target = messageById.get(message.replyToMessageId);
+    if (target?.roomId !== message.roomId || target.seq >= message.seq)
+      throw new TypeError("백업 파일의 응답 대상이 올바르지 않습니다.");
   }
   for (const room of rooms.values()) {
     const last = lastIds.get(room.id) ?? null;
@@ -239,16 +282,19 @@ export function parseChatBundle(raw: string): ChatBundle {
       Array.isArray(memory) ||
       Object.keys(memory).some((key) => !MEMORY_FIELDS.has(key)) ||
       memory.profileId !== "local" ||
-      !rooms.has(memory.roomId) ||
+      typeof memory.roomId !== "string" ||
+      !memory.roomId ||
+      memory.roomId.length > 256 ||
       typeof memory.text !== "string" ||
       !memory.text.trim() ||
       memory.text.length > MEMORY_MAX_LENGTH ||
+      typeof memory.id !== "string" ||
       !memory.id ||
       memory.id.length > 256 ||
       memoryIds.has(memory.id) ||
       (memory.sourceMessageId !== null &&
         (typeof memory.sourceMessageId !== "string" ||
-          !ids.has(memory.sourceMessageId))) ||
+          messageById.get(memory.sourceMessageId)?.roomId !== memory.roomId)) ||
       (memory.sourceText !== null &&
         (typeof memory.sourceText !== "string" ||
           memory.sourceText.length > 2_000)) ||
@@ -261,6 +307,13 @@ export function parseChatBundle(raw: string): ChatBundle {
         (!Number.isSafeInteger(memory.expiresAt) || memory.expiresAt < 0))
     ) {
       throw new TypeError("백업 파일의 기억 정보가 올바르지 않습니다.");
+    }
+    // Older v2 writers could save a manual memory before the first message
+    // without creating its (empty) parent room. Preserve those backups.
+    if (!rooms.has(memory.roomId)) {
+      if (rooms.size >= BUNDLE_MAX_ROOMS)
+        throw new TypeError("백업 파일의 기록 수가 한도를 넘습니다.");
+      rooms.set(memory.roomId, roomRecord(memory.roomId));
     }
     memoryIds.add(memory.id);
     return memory;
@@ -306,6 +359,25 @@ export function openChatStore({
         memories.createIndex("roomCreated", ["roomId", "createdAt"]);
         memories.createIndex("sourceMessage", "sourceMessageId");
       }
+      const tx = request.transaction!;
+      db.createObjectStore("generations");
+      resetGenerations(tx);
+      // Repair existing v2 manual memories in the same versionchange transaction.
+      const rooms = tx.objectStore("rooms");
+      const cursor = tx
+        .objectStore("memories")
+        .index("roomCreated")
+        .openKeyCursor();
+      cursor.onsuccess = () => {
+        const row = cursor.result;
+        if (!row) return;
+        const [roomId] = row.key as [string, number];
+        const existing = rooms.getKey(roomId);
+        existing.onsuccess = () => {
+          if (existing.result === undefined) rooms.add(roomRecord(roomId));
+          row.continue([roomId, []]); // Skip remaining numeric timestamps in this room.
+        };
+      };
     };
     request.onblocked = onBlocked;
     request.onerror = () => reject(request.error);
@@ -336,10 +408,17 @@ export class ChatStore {
       done: (value: T) => void,
       fail: (error: unknown) => void,
     ) => void,
+    signal?: AbortSignal,
   ): Promise<T> {
     return new Promise((resolve, reject) => {
+      signal?.throwIfAborted();
       if (!this.#db) {
-        reject(new Error("대화 저장소 연결이 닫혔습니다. 다시 열어 주세요."));
+        reject(
+          new DOMException(
+            "대화 저장소 연결이 닫혔습니다. 다시 열어 주세요.",
+            "InvalidStateError",
+          ),
+        );
         return;
       }
       const tx = this.#db.transaction(stores, mode);
@@ -348,14 +427,32 @@ export class ChatStore {
         failure = error;
         tx.abort();
       };
+      const cancel = () => {
+        try {
+          tx.abort();
+          failure = signal?.reason;
+        } catch (error) {
+          // IDB may already have committed before delivering oncomplete.
+          if (!(
+            error instanceof DOMException && error.name === "InvalidStateError"
+          ))
+            throw error;
+        }
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
       // Request success is provisional; report writes only after the transaction commits.
-      tx.oncomplete = () => resolve(result);
-      tx.onabort = () =>
+      tx.oncomplete = () => {
+        signal?.removeEventListener("abort", cancel);
+        resolve(result);
+      };
+      tx.onabort = () => {
+        signal?.removeEventListener("abort", cancel);
         reject(
           failure ??
             tx.error ??
             new DOMException("대화 저장이 중단되었습니다.", "AbortError"),
         );
+      };
       try {
         enqueue(
           tx,
@@ -448,6 +545,40 @@ export class ChatStore {
     );
   }
 
+  sourceMessage(roomId: string, id: string) {
+    identifier(roomId, "대화방");
+    identifier(id, "메시지 ID");
+    return this.#transaction<MessageRecord | null>(
+      ["messages"],
+      "readonly",
+      (tx, done) => {
+        const request = readRequest<MessageRecord | undefined>(
+          tx.objectStore("messages").get(id),
+        );
+        request.onsuccess = () =>
+          done(request.result?.roomId === roomId ? request.result : null);
+      },
+    );
+  }
+
+  writeHead(roomId: string) {
+    identifier(roomId, "대화방");
+    return this.#transaction<{
+      generation: string;
+      last: MessageRecord | null;
+    }>(["messages", "generations"], "readonly", (tx, done) => {
+      readGeneration(tx, roomId, (generation) => {
+        const range = IDBKeyRange.bound([roomId, 0], [roomId, Infinity]);
+        const cursor = tx
+          .objectStore("messages")
+          .index("roomSeq")
+          .openCursor(range, "prev");
+        cursor.onsuccess = () =>
+          done({ generation, last: cursor.result?.value ?? null });
+      });
+    });
+  }
+
   appendMessage(
     {
       roomId,
@@ -458,10 +589,20 @@ export class ChatStore {
       status = "complete",
       createdAt = Date.now(),
     }: MessageDraft,
-    { expectedRevision, expectedLastMessageId }: WriteCondition = {},
+    {
+      expectedRevision,
+      expectedLastMessageId,
+      expectedGeneration,
+      signal,
+    }: WriteCondition = {},
   ) {
-    if (expectedLastMessageId !== undefined)
+    if (expectedLastMessageId != null)
       identifier(expectedLastMessageId, "응답 대상");
+    if (
+      sourceKind === "model-output" &&
+      (expectedLastMessageId == null || expectedGeneration === undefined)
+    )
+      throw new TypeError("모델 응답에는 대화방 세대와 질문 ID가 필요합니다.");
     identifier(roomId, "대화방");
     identifier(id, "메시지 ID");
     content(text);
@@ -477,14 +618,14 @@ export class ChatStore {
       throw new TypeError("메시지 메타데이터가 올바르지 않습니다.");
     }
     return this.#transaction<MessageRecord>(
-      ["rooms", "messages"],
+      ["rooms", "messages", "generations"],
       "readwrite",
       (tx, done, fail) => {
         const rooms = tx.objectStore("rooms");
         const request = readRequest<RoomRecord | undefined>(rooms.get(roomId));
-        request.onsuccess = () => {
-          const room = request.result ?? roomRecord(roomId);
+        const append = (room: RoomRecord, generation: string | undefined) => {
           if (
+            expectedGeneration !== generation ||
             (expectedRevision !== undefined &&
               room.revision !== expectedRevision) ||
             (expectedLastMessageId !== undefined &&
@@ -511,7 +652,10 @@ export class ChatStore {
             sourceKind,
             status,
             createdAt,
-            replyToMessageId: null,
+            replyToMessageId:
+              sourceKind === "model-output"
+                ? (expectedLastMessageId ?? null)
+                : null,
           };
           room.revision++;
           if (speakerType === "user") room.userMessageCount++;
@@ -520,7 +664,16 @@ export class ChatStore {
           rooms.put(room);
           done(message);
         };
+        request.onsuccess = () => {
+          const room = request.result ?? roomRecord(roomId);
+          if (expectedGeneration === undefined) append(room, undefined);
+          else
+            readGeneration(tx, roomId, (generation) =>
+              append(room, generation),
+            );
+        };
       },
+      signal,
     );
   }
 
@@ -588,10 +741,31 @@ export class ChatStore {
 
   saveMemory(payload: MemoryDraft) {
     const record = this.memoryRecord(payload);
-    return this.#transaction<Memory>(["memories"], "readwrite", (tx, done) => {
-      tx.objectStore("memories").put(record);
-      done(record);
-    });
+    return this.#transaction<Memory>(
+      record.sourceMessageId === null
+        ? ["rooms", "memories"]
+        : ["rooms", "memories", "messages"],
+      "readwrite",
+      (tx, done, fail) => {
+        const rooms = tx.objectStore("rooms");
+        const existing = rooms.getKey(record.roomId);
+        existing.onsuccess = () => {
+          if (existing.result === undefined)
+            rooms.add(roomRecord(record.roomId));
+        };
+        if (record.sourceMessageId !== null) {
+          const source = readRequest<MessageRecord | undefined>(
+            tx.objectStore("messages").get(record.sourceMessageId),
+          );
+          source.onsuccess = () => {
+            if (source.result?.roomId !== record.roomId)
+              fail(conflict("기억 출처 메시지가 이 대화방에 없습니다."));
+          };
+        }
+        tx.objectStore("memories").add(record);
+        done(record);
+      },
+    );
   }
 
   updateMemory(id: string, patch: MemoryPatch) {
@@ -705,96 +879,37 @@ export class ChatStore {
   deleteRoom(roomId: string) {
     identifier(roomId, "대화방");
     return this.#transaction<{ messages: number; memories: number }>(
-      ["rooms", "messages", "memories"],
+      ["rooms", "messages", "memories", "generations"],
       "readwrite",
       (tx, done) => {
-        const rooms = tx.objectStore("rooms");
-        const request = readRequest<RoomRecord | undefined>(rooms.get(roomId));
-        request.onsuccess = () => {
-          if (!request.result) {
-            done({ messages: 0, memories: 0 });
-            return;
-          }
-          const keys: IDBValidKey[] = [];
-          const memoryKeys: IDBValidKey[] = [];
-          const cursorRequest = tx
-            .objectStore("messages")
-            .index("roomSeq")
-            .openKeyCursor();
-          let sought = false;
-          cursorRequest.onsuccess = () => {
-            const cursor = cursorRequest.result;
-            const finish = () => {
-              const messages = tx.objectStore("messages");
-              for (const key of keys) messages.delete(key);
-              rooms.delete(roomId);
-              // 파생 기억은 출처가 사라지면 함께 무효화한다.
-              const memories = tx.objectStore("memories");
-              const memoryRequest = memories
-                .index("roomCreated")
-                .openKeyCursor();
-              let memorySought = false;
-              memoryRequest.onsuccess = () => {
-                const memoryCursor = memoryRequest.result;
-                const finishMemories = () => {
-                  for (const key of memoryKeys) memories.delete(key);
-                  done({ messages: keys.length, memories: memoryKeys.length });
-                };
-                if (!memoryCursor) {
-                  finishMemories();
-                  return;
-                }
-                if (!memorySought) {
-                  memorySought = true;
-                  if ((memoryCursor.key as [string, number])[0] !== roomId) {
-                    if ((memoryCursor.key as [string, number])[0] > roomId) {
-                      finishMemories();
-                      return;
-                    }
-                    memoryCursor.continue([roomId]);
-                    return;
-                  }
-                }
-                if ((memoryCursor.key as [string, number])[0] !== roomId) {
-                  finishMemories();
-                  return;
-                }
-                memoryKeys.push(memoryCursor.primaryKey);
-                memoryCursor.continue();
-              };
-            };
-            if (!cursor) {
-              finish();
-              return;
-            }
-            if (!sought) {
-              sought = true;
-              if ((cursor.key as [string, number])[0] !== roomId) {
-                if ((cursor.key as [string, number])[0] > roomId) {
-                  finish();
-                  return;
-                }
-                cursor.continue([roomId]);
-                return;
-              }
-            }
-            if ((cursor.key as [string, number])[0] !== roomId) {
-              finish();
-              return;
-            }
-            keys.push(cursor.primaryKey);
+        tx.objectStore("generations").put(crypto.randomUUID(), roomId);
+        tx.objectStore("rooms").delete(roomId);
+        const counts = { messages: 0, memories: 0 };
+        const range = IDBKeyRange.bound([roomId, 0], [roomId, Infinity]);
+        const remove = (name: keyof typeof counts, index: string) => {
+          const store = tx.objectStore(name);
+          const request = store.index(index).openKeyCursor(range);
+          request.onsuccess = () => {
+            const cursor = request.result;
+            if (!cursor) return;
+            store.delete(cursor.primaryKey);
+            counts[name]++;
             cursor.continue();
           };
         };
+        remove("messages", "roomSeq");
+        remove("memories", "roomCreated");
+        done(counts);
       },
     );
   }
 
   deleteAll() {
     return this.#transaction<RecordCounts>(
-      ["rooms", "messages", "memories"],
+      ["rooms", "messages", "memories", "generations"],
       "readwrite",
       (tx, done) => {
+        resetGenerations(tx);
         const rooms = tx.objectStore("rooms");
         const messages = tx.objectStore("messages");
         const memories = tx.objectStore("memories");
@@ -838,8 +953,12 @@ export class ChatStore {
         rooms.onsuccess = () => {
           messages.onsuccess = () => {
             memories.onsuccess = () => {
-              if (messages.result.length > BUNDLE_MAX_MESSAGES) {
-                fail(new Error("내보낼 메시지가 한도를 넘습니다."));
+              if (
+                rooms.result.length > BUNDLE_MAX_ROOMS ||
+                messages.result.length > BUNDLE_MAX_MESSAGES ||
+                memories.result.length > BUNDLE_MAX_MESSAGES
+              ) {
+                fail(new Error("내보낼 기록 수가 한도를 넘습니다."));
                 return;
               }
               const bundle = {
@@ -867,7 +986,7 @@ export class ChatStore {
                   ),
               };
               const text = JSON.stringify(bundle);
-              if (text.length > BUNDLE_MAX_BYTES) {
+              if (exceedsBundleSize(text)) {
                 fail(new Error("내보낼 백업이 크기 한도를 넘습니다."));
                 return;
               }
@@ -883,7 +1002,7 @@ export class ChatStore {
   importBundle(raw: string, { replace = false } = {}) {
     const bundle = parseChatBundle(raw);
     return this.#transaction<RecordCounts>(
-      ["rooms", "messages", "memories"],
+      ["rooms", "messages", "memories", "generations"],
       "readwrite",
       (tx, done, fail) => {
         const rooms = tx.objectStore("rooms");
@@ -908,6 +1027,7 @@ export class ChatStore {
                 );
                 return;
               }
+              resetGenerations(tx);
               if (
                 roomCount.result ||
                 messageCount.result ||

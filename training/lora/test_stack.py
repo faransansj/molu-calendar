@@ -13,7 +13,7 @@ from peft import PeftModel
 from tokenizers import Tokenizer, models
 from transformers import PreTrainedTokenizerFast, Qwen3Config, Qwen3ForCausalLM, set_seed
 
-from run import HERE, add_lora, load_model, read_json, reply_loss_inputs, trainer_for
+from run import HERE, add_lora, latest_complete_checkpoint, load_model, read_json, reply_loss_inputs, trainer_for
 
 
 class StackTest(unittest.TestCase):
@@ -101,7 +101,23 @@ class StackTest(unittest.TestCase):
                 with restored.disable_adapter():
                     baseline = restored(inputs).logits
                 self.assertGreater((baseline - expected).abs().max().item(), 0)
-            self.assertTrue((output / 'checkpoints' / 'checkpoint-2' / 'trainer_state.json').exists())
+            checkpoints = output / 'checkpoints'
+            interrupted = checkpoints / 'checkpoint-3'
+            interrupted.mkdir()
+            (interrupted / 'trainer_state.json').write_text('{"global_step":3}')
+            checkpoint = latest_complete_checkpoint(checkpoints)
+            self.assertEqual(checkpoint, checkpoints / 'checkpoint-2')
+
+            # A real Trainer can restore the selected adapter and optimizer and finish another step.
+            next_base = Qwen3ForCausalLM(architecture)
+            next_base.load_state_dict(initial)
+            resumed = trainer_for(add_lora(next_base, config), tokenizer, rows, rows, config,
+                                  checkpoints, max_steps=3, use_cpu=True)
+            resumed.train(resume_from_checkpoint=str(checkpoint))
+            saved_history = read_json(checkpoint / 'trainer_state.json')['log_history']
+            self.assertTrue(saved_history)
+            self.assertEqual(resumed.state.log_history[:len(saved_history)], saved_history)
+            self.assertEqual(latest_complete_checkpoint(checkpoints), interrupted)
 
 
 if __name__ == '__main__':

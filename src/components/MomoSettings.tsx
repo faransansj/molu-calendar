@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { ChatTranscript } from "../lib/chat/transcript.ts";
+import { BUNDLE_MAX_BYTES } from "../lib/chat/store.ts";
 import { momoSupportsAI } from "../lib/chat/prompt.ts";
 import { MODEL, useLocalAI } from "../hooks/useLocalAI.ts";
 import { cx } from "../lib/cx.ts";
@@ -157,7 +158,7 @@ function AISection({ students }: { students: Student[] }) {
                   type="button"
                   className={cx(primaryButton, smallButton)}
                   disabled={ai.busy}
-                  onClick={() => run(ai.prepare)}
+                  onClick={() => run(() => ai.prepare("download"))}
                 >
                   <Icon name={ai.cached ? "sparkle" : "download"} />
                   {ai.cached ? "지금 불러오기" : "모델 받기"}
@@ -178,7 +179,8 @@ function AISection({ students }: { students: Student[] }) {
       <p className="mt-2.5 text-xs/[1.65] text-muted">
         대화는 서버로 보내지 않고 이 기기에서 처리돼요. WebGPU를 지원하는 최신
         Chrome·Edge가 필요하고, 탭을 숨기면 메모리를 비우기 위해 모델을 내려
-        놓아요. AI 답장은 직접 기억하기를 누르기 전까지 기억에 남지 않아요.
+        놓아요. 답장은 대화 기록에 저장되지만, 따로 기억하기를 눌러야 저장된
+        기억에 추가돼요.
       </p>
       {(ai.cached || ai.cacheWriteFailed) && !ai.loading && (
         <ConfirmButton
@@ -234,7 +236,6 @@ function DataSection({
     setNotice(null);
     try {
       await task();
-      await onChange();
       setNotice({ tone: "info", text: done });
       await estimate();
     } catch (cause) {
@@ -335,7 +336,7 @@ function DataSection({
                   const file = event.target.files?.[0];
                   event.target.value = "";
                   if (!file) return;
-                  if (file.size > 32 * 1024 * 1024)
+                  if (file.size > BUNDLE_MAX_BYTES)
                     setNotice({
                       tone: "danger",
                       text: "백업 파일은 32 MiB 이하여야 해요.",
@@ -360,11 +361,12 @@ function DataSection({
                 onClick={() => {
                   const file = pending;
                   setPending(null);
-                  void action(
-                    async () =>
-                      store!.importBundle(await file.text(), { replace: true }),
-                    "백업을 복원했어요.",
-                  );
+                  void action(async () => {
+                    await store!.importBundle(await file.text(), {
+                      replace: true,
+                    });
+                    await onChange();
+                  }, "백업을 복원했어요.");
                 }}
               >
                 백업으로 바꾸기
@@ -387,7 +389,10 @@ function DataSection({
             confirm="정말 모두 지울까요?"
             disabled={locked}
             onConfirm={() =>
-              void action(() => store!.deleteAll(), "모든 대화를 지웠어요.")
+              void action(async () => {
+                await store!.deleteAll();
+                await onChange();
+              }, "모든 대화를 지웠어요.")
             }
           >
             <Icon name="trash" />

@@ -1,6 +1,6 @@
 import { EXCERPT_LIMITS } from "../ai/persona.ts";
 
-import type { Memory, Reference, MemoryDraft } from "./types.ts";
+import type { ChatMessage, Memory, MemoryDraft } from "./types.ts";
 
 const PARTICLES = [
   "한테",
@@ -214,17 +214,15 @@ export function selectMemories<
 
 // 현재 질문과 최근 대화는 프롬프트에 이미 있으므로 발췌로 중복하지 않는다.
 export function selectExcerpts(
-  hits: (Reference | { message: Reference })[],
+  hits: (ChatMessage | { message: ChatMessage })[],
   {
     currentId = null,
     recentIds = [],
-    itemChars = EXCERPT_LIMITS.itemChars,
-    maxChars = EXCERPT_LIMITS.chars,
+    excludedIds = new Set<string>(),
   }: {
     currentId?: string | null;
     recentIds?: string[];
-    itemChars?: number;
-    maxChars?: number;
+    excludedIds?: ReadonlySet<string>;
   } = {},
 ) {
   if (!Array.isArray(hits)) throw new TypeError("검색 결과가 배열이 아닙니다.");
@@ -234,11 +232,22 @@ export function selectExcerpts(
   for (const hit of hits) {
     if (chosen.length >= EXCERPT_LIMITS.items) break;
     const message = "message" in hit ? hit.message : hit;
-    if (!message || typeof message.text !== "string" || seen.has(message.id))
+    if (
+      message.status !== "complete" ||
+      seen.has(message.id) ||
+      excludedIds.has(message.id)
+    )
       continue;
-    const text = message.text.slice(0, itemChars).trim();
-    if (!text || used + text.length > maxChars) continue;
-    chosen.push({ id: message.id, text });
+    const text = message.text.slice(0, EXCERPT_LIMITS.itemChars).trim();
+    if (!text || used + text.length > EXCERPT_LIMITS.chars) continue;
+    chosen.push({
+      id: message.id,
+      text,
+      kind: "quote" as const,
+      speakerId: message.speakerId,
+      speakerType: message.speakerType,
+      sourceKind: message.sourceKind,
+    });
     used += text.length;
     seen.add(message.id);
   }
@@ -246,7 +255,7 @@ export function selectExcerpts(
 }
 
 export function searchMessages<
-  T extends Reference & {
+  T extends Pick<ChatMessage, "id" | "text"> & {
     createdAt?: number | null;
   },
 >(
@@ -289,7 +298,7 @@ export function searchMessages<
 }
 
 export function memoryDraftFromMessage(
-  message: Reference & { roomId: string },
+  message: Pick<ChatMessage, "id" | "text"> & { roomId: string },
   maxLength = 500,
 ): MemoryDraft {
   if (!message || typeof message.text !== "string" || !message.text.trim())

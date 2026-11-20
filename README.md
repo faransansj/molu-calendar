@@ -191,6 +191,11 @@ All chat replies use the on-device LLM, including schedule questions. Download t
 roughly 2 GB model in chat settings; a WebGPU-capable browser is required. Students
 without a built-in AI persona cannot start conversations. There are no scripted
 fallback replies. Back up conversations you want to keep.
+The composer never downloads a model. If the cached file is missing when a
+room needs to load it, the draft stays in that room. Turning off a
+saved memory excludes its source from future prompt retrieval without erasing
+the conversation. See the [storage, prompt and browser test contract](docs/chat-memory-contract.md).
+
 The gear-shaped settings button left of MomoTalk opens the app-wide **MOLU settings**
 popup without opening a conversation. It brings together calendar view preferences,
 bookmark filtering, saved timeline folding, MomoTalk notification sound, local AI/model

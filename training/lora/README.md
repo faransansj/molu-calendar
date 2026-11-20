@@ -103,6 +103,7 @@ done
 - 데이터가 작아 3 epoch도 품질 보장은 없다. 에피소드당 여러 응답은 서로 독립된 표본도 아니다. 무작정 반복 횟수를 늘리면 원문만 외울 수 있다.
 - 기존 출력 디렉터리는 덮어쓰지 않는다. 다시 실험할 때는 `--out runs/pilot-v2-Yuuka`처럼 새 경로를 쓴다.
 - epoch 체크포인트는 최근 두 개를 보존한다. 중단 후에는 **같은 config/data/QLoRA/smoke 설정**으로 `--resume`을 붙인다. 완료된 실행의 재학습은 새 경로를 쓴다.
+- 재개는 `complete.json`과 상태·어댑터·optimizer·scheduler·RNG(및 FP16 scaler) 해시가 일치하는 가장 최근 체크포인트를 사용한다. 불완전하거나 손상된 최신 체크포인트는 건너뛴다. 비교 재개는 `.partial`의 확정된 행을 검증한 후 마지막 줄바꿈 없는 행만 버리고 그 항목부터 생성한다. 중간 행이나 최종 파일의 손상은 오류다.
 
 ```sh
 uv run --locked python run.py train --character Yuuka --out runs/pilot-Yuuka --resume
@@ -137,6 +138,7 @@ uv run --locked --extra qlora python run.py compare --run runs/qlora-smoke-Yuuka
 - 기존 `resource/persona/momotalk.json`의 `pairs`는 학습에 쓰지 않는다. 일부 선택지별 `NextGroupId`가 다른데 첫 번째 경로로 묶거나, 인연 스토리 전후/다음 에피소드까지 답변에 연결되는 문제가 확인되었다. 기존 앱 데이터는 이번 작업에서 변경하지 않았다.
 - `prepare.py`는 `FavorRankUp`을 에피소드 시작으로, `FavorScheduleId`/`PreConditionFavorScheduleId`를 스토리 전후 분리 지점으로 사용한다. 인연 스토리 **본문을 보충/상상하지 않는다**.
 - 선택지 그룹(Answer)에서 **모든 실제 선택지**를 각각의 경로로 열거하고, 각 경로는 선택지 하나와 그 선택의 실제 `NextGroupId`만 따른다. 서로 다른 선택지를 한 이력에 나열하지 않는다. 내용이 완전히 같은 표본은 한 번만 남긴다.
+- `choices`와 샘플 ID의 경로 해시는 실제 내보낸 응답까지의 선택지만 포함한다. 이후 분기의 선택지는 과거 표본의 출처나 ID를 바꾸지 않는다.
 - 학생이 먼저 보낸 메시지와 앞선 선택/응답은 **맥락**으로 보존한다. 마지막 assistant 응답에만 loss를 적용하고 system·이력·user·padding·Qwen thinking 접두사는 마스킹한다.
 - 장식 문자 제거/공백 정리/연속 말풍선 연결만 한다. 깨진 자모가 포함된 샘플은 제외하고 이유를 기록한다. 창작 질문에 원문 대사를 임의로 붙이지 않는다.
 - **에피소드 전체**를 train/eval 중 한쪽에 둔다. 스토리 전후 segment도 같은 split에 둔다. eval 정답이 train의 assistant 이력/정답에 똑같이 나타나는 샘플은 제거한다. 의미상 유사한 문장까지 자동 탐지하는 것은 아니다.
@@ -207,24 +209,19 @@ tar --exclude='checkpoints' -czf /tmp/character-adapters.tar.gz \
 
 ## 5.5 프롬프트 수준 기억 검증 (모델 학습과 별개)
 
-앱의 기억 기능이 실제 프롬프트에서 동작하는지 **로컬 Qwen3**로 확인하는 프로브가 있다. 앱과 같은 조립 코드(`src/lib/ai/persona.ts`·`src/lib/chat/memory.ts`·`src/lib/chat/prompt.ts`)를 Node로 실행해 프롬프트를 만들고, 이 프로젝트의 환경에서 추론한다.
+Node 픽스처가 출처가 있는 메시지·기억을 제공하고 앱의 `planChatPrompt()`와 최종 메시지 조립을 실행한다. 생성은 브라우저 Gemma가 아닌 **로컬 Qwen3**다. 각 실험은 기존 생성물을 덮어쓰지 않도록 별도 디렉터리에 둔다.
 
 ```sh
 cd training/lora
-node build_memory_probes.ts runs/memory-probe/prompts.jsonl   # 6사실 × 5변형 = 30건
-uv run --locked python memory_probe.py                          # Qwen/Qwen3-1.7B, MPS/CUDA
+node build_memory_probes.ts runs/memory-v2/prompts.jsonl     # 6사실 × 5변형 = 30건
+uv run --locked python memory_probe.py --prompts runs/memory-v2/prompts.jsonl --samples 3
 # 선택: --adapter runs/<실험>/<캐릭터>/adapter --device cuda --limit 10
 ```
 
 - 변형: `memory`(기억 포함) · `no-memory`(기억 없음) · `expired`(만료) · `disabled`(사용 중지) · `cross-room`(다른 방의 기억).
-- `prompts.jsonl`은 조립 단계에서 참고 자료 포함 여부·마지막 질문·문자 예산을 검사하고 실패하면 중단한다.
-- 결과는 `runs/memory-probe/responses.jsonl`과 `summary.md`. 키워드 기반 자동 판정은 참고 지표이며, 원문 답변을 함께 남긴다.
-- **앱 모델(Gemma 4 LiteRT)이 아니라 프롬프트 구조 검증이다.** 앱 품질 보장으로 확대 해석하지 않는다.
-
-측정으로 확인한 것(로컬 Qwen3-1.7B, 3표본 평균):
-
-- 프롬프트에 `[말투]`(register 파생 문장)나 `[분량]`(캐릭터별 문장 수) 블록을 **추가해도 지표가 나아지지 않았다**(각 168표본·60표본 A/B). 그래서 앱 프롬프트에는 넣지 않았고, 파생값은 프로브 판정 기준으로만 쓴다.
-- 예시 자체가 규칙보다 강하게 작동한다: 앱 규칙은 2~4문장인데 예시 115개 중 24개가 5문장 이상이었고, 모델도 그 리듬을 따라 길게 말했다. `tools/vendor/select_examples.py`에 종결 부호 기준 문장 수 점수(2~4 보너스, 5+ 감점)를 넣어 예시를 규칙 쪽으로 맞췄다(24 → 16개).
+- `expired`/`disabled`에서도 원문은 검색 가능한 과거 메시지로 남긴다. 해당 값이 기억·원문 발췌·최근 이력 어디로도 최종 프롬프트에 들어가지 않아야 한다. `memory`에서는 해당 출처가 있는 값을 확인한다.
+- 질문에는 주제와 단위만 있고 답 수치는 없다. `responses.jsonl`과 `summary.md`는 근거가 있는 값 일치(`correct`), 근거를 부정하거나 다른 값 단정(`contradicted`), 근거 없이 값을 단정(`unsupported-value`), 그 외(`unknown`)를 나눈다. 우연히 맞힌 추측도 근거 없는 단정이다. `unknown`에는 명시적 모름 외에 형식을 벗어나 해석하지 못한 답도 있으므로 정직한 거절률로 읽지 않는다. 숫자·단위 규칙의 오판은 원문으로 확인한다.
+- `--rejudge`는 같은 생성 프롬프트와 저장된 답변으로 판정만 갱신한다. 모델·revision·어댑터·장치·토큰 한도·샘플링 설정과 실제 seed는 응답 행에서 보존한다. 과거 키워드 문항을 새 지표로 바꾸려면 **새 프롬프트로 다시 생성**해야 한다. [과거 집계](RESULTS.md)는 새 회상률이나 앱 품질의 증거가 아니다.
 
 ## 5.6 말투 프로브 (고정 평가셋, 모델 학습과 별개)
 
@@ -235,8 +232,13 @@ cd training/lora
 node build_style_probes.ts runs/voice-probe/prompts.jsonl
 uv run --locked python voice_probe.py                      # 생성 + 채점
 uv run --locked python voice_probe.py --rejudge            # 모델 없이 저장된 답변 재채점(지표 수정용)
-uv run --locked python voice_probe.py --adapter <path> --filter Yuuka   # 어댑터 비교
+# 같은 질문·표본으로 별도의 두 폴더에 생성한 뒤 비교한다.
+uv run --locked python voice_probe.py --characters Yuuka --samples 3 --out runs/voice-base
+uv run --locked python voice_probe.py --characters Yuuka --samples 3 --adapter runs/local-mps-1.7b-v4/Yuuka-02/adapter --out runs/voice-adapter
+uv run --locked python voice_probe.py --compare runs/voice-base runs/voice-adapter
 ```
+
+`--compare`는 중복 행, 질문·표본 집합 또는 seed 불일치, seed 기록이 없는 구판 결과를 거부한다. 전체와 부분집합을 그대로 비교하지 않는다. 재채점에 쓰는 원래 `prompts.jsonl`을 보존한다. 판정에서 제외한 문항은 해당 실패율의 분모에 넣지 않는다.
 
 지표(휴리스틱, 원문 답변을 함께 저장):
 
@@ -250,11 +252,11 @@ uv run --locked python voice_probe.py --adapter <path> --filter Yuuka   # 어댑
 | `echo` | 사용자 메시지를 거의 그대로 되받는지 |
 | `invented` | 카드에 없는 약속/기억을 단정하는지(일정·기억 질문) |
 
-맥락 창 프로브(최근 왕복 수 결정용): `node build_context_probes.ts runs/context-probe/prompts.jsonl` + `uv run --locked python memory_probe.py --prompts runs/context-probe/prompts.jsonl --samples 3`. 사실을 3왕복 전에 말한 뒤 회상 질문을 던져 창 크기(2 vs 4왕복)와 기억 주입을 비교한다(결과: [RESULTS.md](RESULTS.md)).
+맥락 창 프로브: `node build_context_probes.ts runs/context-v2/prompts.jsonl` 후 `uv run --locked python memory_probe.py --prompts runs/context-v2/prompts.jsonl --samples 3`. 최근 2/4왕복의 비교에서는 발췌를 양쪽 모두 제거한다. 별도의 발췌 실험은 25왕복 전의 사실과 관련 방해 메시지를 실제 앱 검색에 넣은 뒤, 원문을 넣은 최종 입력과 발췌만 뺀 통제를 비교한다.
 
 **앱 모델(Gemma 4 LiteRT)이 아니라 프롬프트 구조 검증이다.** 앱 품질 보장으로 확대 해석하지 않는다.
 
-측정으로 확인한 것(로컬 Qwen3-1.7B, 3표본 평균):
+과거 Qwen3-1.7B 실행에서 관찰한 경향(구판 보고서의 질문·seed 대조 한계는 [RESULTS.md](RESULTS.md) 참조):
 
 - 프롬프트에 `[말투]`(register 파생 문장)나 `[분량]`(캐릭터별 문장 수) 블록을 **추가해도 지표가 나아지지 않았다**(각 168표본·60표본 A/B). 그래서 앱 프롬프트에는 넣지 않았고, 파생값은 프로브 판정 기준으로만 쓴다.
 - 예시 자체가 규칙보다 강하게 작동한다: 앱 규칙은 2~4문장인데 예시 115개 중 24개가 5문장 이상이었고, 모델도 그 리듬을 따라 길게 말했다. `tools/vendor/select_examples.py`에 종결 부호 기준 문장 수 점수(2~4 보너스, 5+ 감점)를 넣어 예시를 규칙 쪽으로 맞췄다(24 → 16개).
@@ -275,7 +277,8 @@ uv run --locked python voice_probe.py --adapter <path> --filter Yuuka   # 어댑
 
 ```sh
 cd training/lora
-uv run --locked python -m unittest test_pipeline test_stack test_loop -v
+node --test probes.test.ts       # 전체 저장소 + Node 22.18 이상: 모델 없이 실제 프롬프트 조립
+uv run --locked python -m unittest test_pipeline test_stack test_loop test_probes -v
 uv run --locked python run.py validate
 ```
 

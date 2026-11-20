@@ -80,7 +80,15 @@ export class LocalAISession extends EventTarget {
   async run<T>(
     owner: string,
     task: (client: AIClient & { check(): void }) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
+    if (signal?.aborted)
+      throw errorWithCode("cancelled", "작업을 취소했습니다.");
+    if (globalThis.document?.hidden)
+      throw errorWithCode(
+        "hidden",
+        "숨겨진 탭에서는 로컬 AI를 시작할 수 없습니다.",
+      );
     if (this.busy)
       throw errorWithCode(
         "busy",
@@ -89,6 +97,10 @@ export class LocalAISession extends EventTarget {
     const job: Job = { owner, error: null };
     this.job = job;
     this.notice = "";
+    const abort = () => {
+      if (this.job === job) this.cancel(owner);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
     this.notify();
     const check = () => {
       if (job.error) throw job.error;
@@ -124,6 +136,7 @@ export class LocalAISession extends EventTarget {
       this.client.stop(error);
       throw error;
     } finally {
+      signal?.removeEventListener("abort", abort);
       this.job = null;
       this.notify();
     }

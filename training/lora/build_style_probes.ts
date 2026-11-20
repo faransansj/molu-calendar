@@ -3,7 +3,6 @@ import { dirname } from "node:path";
 import {
   PERSONAS,
   chatMessagesFor,
-  promptCharsFor,
   replyLengthRange,
 } from "../../src/lib/ai/persona.ts";
 
@@ -19,7 +18,6 @@ const NO_INVENT = [/약속/, /기억/];
 
 const rows = [];
 for (const persona of PERSONAS) {
-  const fixed = promptCharsFor(persona.id)!;
   for (const question of QUESTIONS) {
     const messages = chatMessagesFor(persona.id, [
       { role: "user", content: question.prompt },
@@ -32,7 +30,10 @@ for (const persona of PERSONAS) {
       sentences: replyLengthRange(persona.id),
       questionId: question.id,
       question: question.prompt,
-      promptChars: fixed.system + fixed.examples + question.prompt.length,
+      promptChars: messages.reduce(
+        (n, message) => n + message.content.length,
+        0,
+      ),
       noInvent: NO_INVENT.some((pattern) => pattern.test(question.prompt)),
       messages: messages.map((message) => ({
         role: message.role,
@@ -51,20 +52,8 @@ for (const row of rows) {
     throw new Error(`${row.id}: 시스템 프롬프트 없음`);
 }
 const output = process.argv[2] ?? "runs/voice-probe/prompts.jsonl";
-// 실험 스위치: 앱 프롬프트의 [분량] 블록만 떼어 비교한다(프로브 전용, 앱 코드는 그대로).
-const noLengthBlock = process.argv.includes("--no-length-block");
-if (noLengthBlock) {
-  for (const row of rows) {
-    if (row.messages[0]?.role !== "system")
-      throw new Error(`${row.id}: 시스템 프롬프트 위치가 다름`);
-    row.messages[0] = {
-      ...row.messages[0],
-      content: row.messages[0].content.replace(/\n\n\[분량\][\s\S]*$/, ""),
-    };
-    if (row.messages[0].content.includes("[분량]"))
-      throw new Error(`${row.id}: [분량] 제거 실패`);
-  }
-}
+if (process.argv.length > 3 || output.startsWith("--"))
+  throw new Error("사용법: node build_style_probes.ts [prompts.jsonl]");
 await mkdir(dirname(output), { recursive: true });
 await writeFile(
   output,

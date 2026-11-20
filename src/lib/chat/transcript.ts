@@ -10,6 +10,7 @@ import type {
   MessageDraft,
   MemoryDraft,
   MemoryPatch,
+  WriteCondition,
 } from "./types.ts";
 import type { ChatStore } from "./store.ts";
 export type { ChatMessage, Memory, RoomCache, Summary } from "./types.ts";
@@ -32,7 +33,9 @@ export function viewMessage(record: MessageRecord): ChatMessage {
     status: record.status,
     speakerType: record.speakerType,
     sourceKind: record.sourceKind,
+    speakerId: record.speakerId,
     createdAt: record.createdAt,
+    replyToMessageId: record.replyToMessageId,
   };
 }
 
@@ -133,6 +136,16 @@ export class ChatTranscript {
     cache.hasMore = true;
   }
 
+  async writeHead(roomId: string) {
+    const { generation, last } = await this.#store.writeHead(roomId);
+    return { generation, last: last && viewMessage(last) };
+  }
+
+  async sourceMessage(roomId: string, id: string) {
+    const message = await this.#store.sourceMessage(roomId, id);
+    return message && viewMessage(message);
+  }
+
   async append(
     roomId: string,
     {
@@ -142,8 +155,8 @@ export class ChatTranscript {
       sourceKind,
       status = "complete",
       createdAt,
-      expectedLastMessageId,
-    }: Omit<MessageDraft, "roomId"> & { expectedLastMessageId?: string },
+      ...condition
+    }: Omit<MessageDraft, "roomId"> & WriteCondition,
   ) {
     const record = await this.#store.appendMessage(
       {
@@ -155,7 +168,7 @@ export class ChatTranscript {
         status,
         createdAt: createdAt ?? Date.now(),
       },
-      { expectedLastMessageId },
+      condition,
     );
     const cache = this.#rooms.get(roomId);
     if (cache) {
@@ -184,25 +197,6 @@ export class ChatTranscript {
       });
     }
     return view;
-  }
-
-  // A trailing complete user message is an unanswered turn: the reply was cancelled, failed or lost on reload.
-  retryTarget(roomId: string) {
-    const cache = this.#rooms.get(roomId);
-    const last = cache?.messages.at(-1);
-    return last && last.me && last.status === "complete" ? last : null;
-  }
-
-  async seed(seeds: MessageDraft[]) {
-    const appended = [];
-    for (const seed of seeds) {
-      const [existing] = await this.#store.readMessages(seed.roomId, {
-        limit: 1,
-      });
-      if (existing) continue;
-      appended.push(await this.append(seed.roomId, seed));
-    }
-    return appended;
   }
 
   async deleteRoom(roomId: string) {

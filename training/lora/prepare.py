@@ -71,21 +71,21 @@ def extract(key, rows, branch_cap=64):
     samples, rejected, seen, capped = [], [], set(), []
     for root in roots:
         expansions = 0
-        # Each stack entry is one real conversation path: (cursor, history, row_ids, segment, choices, visited).
-        stack = [(root, [], [], root, (), frozenset())]
+        # Each stack entry owns one path through the current story segment.
+        stack = [(root, [], [], root, frozenset())]
         while stack:
-            cursor, history, row_ids, segment, choices, visited = stack.pop()
+            cursor, history, row_ids, segment, visited = stack.pop()
             if cursor in visited:
                 raise ValueError(f'{key}: cycle at {cursor}')
             if cursor not in groups:
                 raise ValueError(f'{key}: missing group {cursor}')
             if cursor != root and cursor in roots:
-                emit(root, key, samples, rejected, seen, history, row_ids, segment, choices)
+                emit(root, key, samples, rejected, seen, history, row_ids, segment)
                 continue
             visited = visited | {cursor}
             items = groups[cursor]
             if any(r['PreConditionFavorScheduleId'] for r in items):
-                emit(root, key, samples, rejected, seen, history, row_ids, segment, choices)
+                emit(root, key, samples, rejected, seen, history, row_ids, segment)
                 history, row_ids, segment = [], [], cursor
             conditions = {r['MessageCondition'] for r in items}
             if conditions == {'Answer'}:
@@ -96,13 +96,12 @@ def extract(key, rows, branch_cap=64):
                 for item in items:
                     if item['MessageType'] != 'Text' or not clean(item['MessageKR']):
                         raise ValueError(f'{key}: non-text/empty answer {item["Id"]}')
-                    path = choices + (item['Id'],)
                     branch_history = deepcopy(history) + [{'role': 'user', 'content': clean(item['MessageKR'])}]
                     branch_rows = deepcopy(row_ids) + [[item['Id']]]
                     if item['NextGroupId']:
-                        stack.append((item['NextGroupId'], branch_history, branch_rows, segment, path, visited))
+                        stack.append((item['NextGroupId'], branch_history, branch_rows, segment, visited))
                     else:
-                        emit(root, key, samples, rejected, seen, branch_history, branch_rows, segment, path)
+                        emit(root, key, samples, rejected, seen, branch_history, branch_rows, segment)
                 continue
             if conditions <= {'FavorRankUp', 'None', 'Feedback'}:
                 role = 'assistant'
@@ -125,16 +124,16 @@ def extract(key, rows, branch_cap=64):
                 raise ValueError(f'{key}: ambiguous continuation {cursor}')
             cursor = next_ids.pop()
             if not cursor:
-                emit(root, key, samples, rejected, seen, history, row_ids, segment, choices)
+                emit(root, key, samples, rejected, seen, history, row_ids, segment)
                 continue
             if any(r['FavorScheduleId'] for r in items):
-                emit(root, key, samples, rejected, seen, history, row_ids, segment, choices)
+                emit(root, key, samples, rejected, seen, history, row_ids, segment)
                 history, row_ids, segment = [], [], cursor
-            stack.append((cursor, history, row_ids, segment, choices, visited))
+            stack.append((cursor, history, row_ids, segment, visited))
     return samples, rejected, capped
 
 
-def emit(root, key, samples, rejected, seen, history, row_ids, segment, choices):
+def emit(root, key, samples, rejected, seen, history, row_ids, segment):
     """Emit every complete user→assistant prefix of one path. Content-identical paths are kept once."""
     for index in range(1, len(history)):
         if history[index]['role'] != 'assistant' or history[index - 1]['role'] != 'user':
@@ -144,6 +143,8 @@ def emit(root, key, samples, rejected, seen, history, row_ids, segment, choices)
         if signature in seen:
             continue
         seen.add(signature)
+        sources = deepcopy(row_ids[:index + 1])
+        choices = [ids[0] for msg, ids in zip(messages, sources, strict=True) if msg['role'] == 'user']
         path_tag = hashlib.sha256(','.join(str(choice) for choice in choices).encode()).hexdigest()[:8] if choices else '0'
         sample_id = f'{key}:{root}:{row_ids[index][-1]}:{path_tag}'
         if any(BROKEN.search(message['content']) or '<|' in message['content'] for message in messages):
@@ -152,8 +153,7 @@ def emit(root, key, samples, rejected, seen, history, row_ids, segment, choices)
         samples.append({
             'id': sample_id, 'character': key, 'episode': f'{key}:{root}',
             'segment': segment, 'messages': messages,
-            'source_message_ids': deepcopy(row_ids[:index + 1]),
-            'choices': list(choices),
+            'source_message_ids': sources, 'choices': choices,
         })
 
 

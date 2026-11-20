@@ -73,11 +73,11 @@
   },
   "files": {
     "cards.json": "f39361c347cf5f978c5112d5ab914fdc7c3682e4722deeae0e012a7d3fe2021a",
-    "Yuuka.train.jsonl": "02c39ebd4f412262cec755bbdeaf643d906d0301a34c88e076a864e633b2cf0e",
-    "Yuuka.eval.jsonl": "c6163414197f7f868d057bfbbba3aade75052cc001a54215f6d2c79abfa7deec",
-    "CH0069.train.jsonl": "0f5fd9f722b6f008e637c6efdc802df2334f6863995636a88db310e108c4536f",
+    "Yuuka.train.jsonl": "a979e35bea115c3066ad296ed8fe0db337325c4bf1e07725bd44621f9c7cd5f0",
+    "Yuuka.eval.jsonl": "86b06297dae0b3df775a6da38a2f31fc4f52b3788992dc9cd71d7d1ed2b6ed4e",
+    "CH0069.train.jsonl": "7846852bbd8dc12e51e7f5a6d8735ec81537021d665697dbb528ede81244f396",
     "CH0069.eval.jsonl": "840e3f81d509d06fed32c00f820d6df1f5b70d38b3c6cfe7d9ed2ba18f6b49f7",
-    "Aris.train.jsonl": "62f55bee806de115cb9307014ffd71124910c89bf7738e62c3a07394dcd5ad8b",
-    "Aris.eval.jsonl": "23f1add172e57458466b1687303466070a2e7a715c4db6797d3f280222ed2c60"
+    "Aris.train.jsonl": "d2d541fd8e0f1103c1ddc8289efc598d47f62d807039f72a83c72aead4fe521b",
+    "Aris.eval.jsonl": "69328d8552ce5963a0ebbe3e3929c30171b1f3af7fafa3aeaf90a8264d702d31"
   }
 }

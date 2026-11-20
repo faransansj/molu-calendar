@@ -19,10 +19,13 @@ import {
 import { Icon } from "./Icon.tsx";
 import { useChat } from "../hooks/useChat.ts";
 import { useLocalAI } from "../hooks/useLocalAI.ts";
+import { sendChatTurn, unanswered } from "../hooks/chat-turn.ts";
+import type { TurnInput } from "../hooks/chat-turn.ts";
 import { MomoSettings } from "./MomoSettings.tsx";
 import { MemoryPanel } from "./MemoryPanel.tsx";
 import type { Memory } from "../lib/chat/transcript.ts";
 import { localAISession } from "../lib/ai/session.ts";
+import { errorCode } from "../lib/ai/protocol.ts";
 import { momoSupportsAI } from "../lib/chat/prompt.ts";
 import { planChatPrompt } from "../lib/chat/plan.ts";
 
@@ -153,7 +156,6 @@ export function MomoTalk({
     room: string;
     rows: Memory[];
   } | null>(null);
-  const [memoryVersion, setMemoryVersion] = useState(0);
   const [unread, setUnread] = usePersistentState(
     "molu.momotalk.unread.v1",
     {},
@@ -176,16 +178,27 @@ export function MomoTalk({
   const [room, setRoom] = useState<string | null>(null);
   const [profile, setProfile] = useState(false);
   const [panel, setPanel] = useState<"chat" | "profile" | "memory">("chat");
-  const [input, setInput] = useState("");
+  const [drafts, setDrafts] = useState(
+    () => new Map<string, { text: string }>(),
+  );
+  const input = (room && drafts.get(room)?.text) || "";
+  const [replacingId, setReplacingId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const active = useRef({ open, room });
   const audio = useRef<HTMLAudioElement | null>(null);
-  const sending = useRef(false);
+  const sending = useRef<AbortController | null>(null);
   const paging = useRef(false);
-  const epoch = useRef(0);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const total = Object.values(unread).reduce((sum, n) => sum + n, 0);
-  const student = students.find((s) => s.id === (room ?? selected)) ?? ARONA;
+  const studentId = room ?? selected;
+  const student = students.find((s) => s.id === studentId) ?? {
+    ...ARONA,
+    id: studentId,
+    name: studentId,
+    short: studentId,
+    school: "",
+    status: "",
+  };
   const messages = room ? (rooms[room] ?? []) : [];
   const roomAI = !!room && momoSupportsAI(room);
   const memories =
@@ -207,14 +220,24 @@ export function MomoTalk({
     const timer = window.setTimeout(() => setNote(null), 3000);
     return () => window.clearTimeout(timer);
   }, [note]);
-  useEffect(
-    () => () => {
-      epoch.current++;
-      localAISession.cancel("momotalk");
+  const stop = useCallback(() => {
+    if (!sending.current) return;
+    sending.current.abort();
+    localAISession.cancel("momotalk");
+  }, []);
+  useEffect(() => {
+    const visibility = () => {
+      if (document.hidden) stop();
+    };
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("pagehide", stop);
+    return () => {
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("pagehide", stop);
+      stop();
       audio.current?.pause();
-    },
-    [],
-  );
+    };
+  }, [stop]);
   useEffect(() => {
     if (paging.current) {
       paging.current = false;
@@ -232,13 +255,13 @@ export function MomoTalk({
       .then((rows) => {
         if (!disposed) setLoadedMemories({ room, rows });
       })
-      .catch((cause: unknown) =>
-        setNote({ tone: "danger", text: messageOf(cause) }),
-      );
+      .catch((cause: unknown) => {
+        if (!disposed) setNote({ tone: "danger", text: messageOf(cause) });
+      });
     return () => {
       disposed = true;
     };
-  }, [room, chat.store, memoryVersion]);
+  }, [room, chat.store, chat.memoryVersion]);
   useEffect(() => {
     if (!open && !settings) return;
     const controller = new AbortController();
@@ -273,7 +296,6 @@ export function MomoTalk({
   const changed = useCallback(async () => {
     chat.notify();
     await chat.refresh();
-    setMemoryVersion((version) => version + 1);
   }, [chat]);
   const openRoom = async (id: string) => {
     if (!chat.ready || chat.error) return;
@@ -283,7 +305,7 @@ export function MomoTalk({
     setPanel("chat");
     setSettings(false);
     setNote(null);
-    setInput("");
+    setReplacingId(null);
     setUnread((current) => ({ ...current, [id]: 0 }));
     try {
       await chat.load(id);
@@ -307,37 +329,24 @@ export function MomoTalk({
     audio.current.currentTime = 0;
     void audio.current.play().catch(() => {});
   };
-  const stop = () => {
-    epoch.current++;
-    ai.cancel();
-  };
-  const send = async (text: string, retry = false) => {
+  const send = async (submission: TurnInput) => {
     if (
       !room ||
       !momoSupportsAI(room) ||
       sending.current ||
-      !text.trim() ||
+      ("text" in submission && !submission.text.trim()) ||
       !chat.ready ||
       chat.error
     )
       return;
     const id = room;
-    const store = chat.transcript.current;
-    if (!store) return;
-    // Never start a 2 GB download from the composer; send people to settings.
-    if (!localAISession.ready && ai.cached !== true) {
-      setNote({
-        tone: "warn",
-        text: `${student.short}의 AI 답장을 받으려면 먼저 모델을 받아 주세요.`,
-        settings: true,
-      });
-      return;
-    }
-    sending.current = true;
+    const controller = new AbortController();
+    const { signal } = controller;
+    sending.current = controller;
+    const submittedDraft = drafts.get(id);
     setBusy(id);
     setNote(null);
     setContext("");
-    const generation = epoch.current;
     try {
       await navigator.locks.request(
         `molu-chat:${id}`,
@@ -345,61 +354,83 @@ export function MomoTalk({
         async (lock) => {
           if (!lock)
             throw new Error("다른 탭에서 이 대화에 답장하는 중이에요.");
-          await chat.load(id);
-          if (!retry && store.retryTarget(id))
-            throw new Error(
-              "답장을 기다리는 메시지가 있어요. 다시 시도를 눌러 주세요.",
-            );
-          const history = [...(store.cached(id)?.messages ?? [])];
-          const question = text.trim();
-          const questionRecord = retry
-            ? store.retryTarget(id)
-            : await chat.append(id, { me: true, text: question });
-          if (!questionRecord) throw new Error("답장할 메시지가 없어요.");
-          if (!retry) setInput("");
-          if (!localAISession.ready) await ai.prepare();
-          if (generation !== epoch.current) return;
-          const plan = await planChatPrompt(
-            store,
-            id,
-            question,
-            retry ? history.slice(0, -1) : history,
-          );
-          setContext(
-            [
-              plan.memories.length && `기억 ${plan.memories.length}개`,
-              plan.excerpts.length && `지난 대화 ${plan.excerpts.length}개`,
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          );
-          const result = await localAISession.run("momotalk", (client) =>
-            client.request(
-              "generate",
-              {
-                characterId: id,
-                messages: plan.messages,
-                memories: plan.memories,
-                excerpts: plan.excerpts,
-                maxTokens: 256,
-              },
-              {
-                firstMs: 60000,
-                timeoutMs: 180000,
-                onEvent: (event) => {
-                  if (event.event === "token" && generation === epoch.current)
-                    setStream(event.text ?? "");
+          await sendChatTurn({
+            input: submission,
+            signal,
+            head: () => chat.read((store) => store.writeHead(id), signal),
+            prepare: async () => {
+              if (!localAISession.ready) await ai.prepare("cache-only", signal);
+            },
+            history: async () => (await chat.load(id, signal)).messages,
+            append: (message, onCommit) => chat.append(id, message, onCommit),
+            onQuestionSaved: () => {
+              setDrafts((current) => {
+                if (!submittedDraft || current.get(id) !== submittedDraft)
+                  return current;
+                const next = new Map(current);
+                next.delete(id);
+                return next;
+              });
+            },
+            plan: (question, history) =>
+              planChatPrompt(
+                {
+                  memories: (roomId) =>
+                    chat.read((store) => store.memories(roomId), signal),
+                  sourceMessage: (roomId, messageId) =>
+                    chat.read(
+                      (store) => store.sourceMessage(roomId, messageId),
+                      signal,
+                    ),
+                  searchRoom: (roomId, options) =>
+                    chat.read(
+                      (store) => store.searchRoom(roomId, options),
+                      signal,
+                    ),
                 },
-              },
-            ),
-          );
-          if (generation !== epoch.current) return;
-          await chat.append(id, {
-            me: false,
-            text: result.text,
-            sourceKind: "model-output",
-            expectedLastMessageId: questionRecord.id,
+                id,
+                question.text,
+                history,
+                question.id,
+                signal,
+              ),
+            generate: async (plan) => {
+              const turns = (plan.messages.length - 1) / 2;
+              setContext(
+                [
+                  plan.memories.length &&
+                    `저장된 기억 ${plan.memories.length}개`,
+                  turns && `최근 대화 ${turns}회`,
+                  plan.excerpts.length &&
+                    `지난 대화 발췌 ${plan.excerpts.length}개`,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+              );
+              const result = await localAISession.run("momotalk", (client) =>
+                client.request(
+                  "generate",
+                  {
+                    characterId: id,
+                    messages: plan.messages,
+                    memories: plan.memories,
+                    excerpts: plan.excerpts,
+                    maxTokens: 256,
+                  },
+                  {
+                    firstMs: 60000,
+                    timeoutMs: 180000,
+                    onEvent: (event) => {
+                      if (event.event === "token" && !signal.aborted)
+                        setStream(event.text ?? "");
+                    },
+                  },
+                ),
+              );
+              return result.text;
+            },
           });
+          if (signal.aborted) return;
           chime();
           if (!active.current.open || active.current.room !== id)
             setUnread((current) => ({
@@ -409,11 +440,20 @@ export function MomoTalk({
         },
       );
     } catch (cause) {
-      // stop() advances epoch, so a cancelled generation cannot replace the current notice.
-      if (generation === epoch.current)
-        setNote({ tone: "danger", text: messageOf(cause) });
+      if (signal.aborted) return;
+      if (cause instanceof Error && cause.name === "ChatStorageConflict") {
+        await chat.read(() => chat.refresh(), signal).catch(() => {});
+      }
+      if (active.current.room !== id || signal.aborted) return;
+      if (errorCode(cause) === "model_not_cached")
+        setNote({
+          tone: "warn",
+          text: `${student.short}의 AI 답장을 받으려면 먼저 모델을 받아 주세요.`,
+          settings: true,
+        });
+      else setNote({ tone: "danger", text: messageOf(cause) });
     } finally {
-      sending.current = false;
+      sending.current = null;
       setBusy(null);
       setStream("");
       setContext("");
@@ -430,7 +470,6 @@ export function MomoTalk({
         sourceText: text.slice(0, 2000),
       })
       .then(() => {
-        setMemoryVersion((version) => version + 1);
         chat.notify();
         setNote({ tone: "info", text: `${student.short}의 기억에 담았어요.` });
       })
@@ -451,16 +490,32 @@ export function MomoTalk({
   const chatIds = chat.summaries
     .map((entry) => entry.roomId)
     .filter((id) => !onlyUnread || unread[id]);
-  const retryable = !!messages.at(-1)?.me && !busy && !chat.error;
+  const latest = chat.summaries.find((entry) => entry.roomId === room)?.last;
+  const retryTarget = unanswered(latest);
+  const retryable = !!retryTarget && !busy && !chat.error;
+  const replacing = !!retryTarget && retryTarget.id === replacingId;
   const retryButton = (
-    <button
-      type="button"
-      className={cx(quietButton, smallButton, "min-h-8!")}
-      disabled={!roomAI || !!chat.error}
-      onClick={() => void send(messages.at(-1)!.text, true)}
-    >
-      다시 시도
-    </button>
+    <div className="flex flex-wrap gap-1">
+      <button
+        type="button"
+        className={cx(quietButton, smallButton, "min-h-8!")}
+        disabled={!roomAI || !!chat.error}
+        onClick={() => retryTarget && void send({ retryId: retryTarget.id })}
+      >
+        다시 시도
+      </button>
+      <button
+        type="button"
+        className={cx(quietButton, smallButton, "min-h-8!")}
+        disabled={!roomAI || !!chat.error}
+        onClick={() => {
+          setNote(null);
+          setReplacingId(replacing ? null : (retryTarget?.id ?? null));
+        }}
+      >
+        {replacing ? "새 질문 취소" : "새 질문 작성"}
+      </button>
+    </div>
   );
   const settingsButton = (
     <button
@@ -637,6 +692,13 @@ export function MomoTalk({
                         if (!store) return;
                         void store
                           .deleteRoom(room)
+                          .then(() => {
+                            setDrafts((current) => {
+                              const next = new Map(current);
+                              next.delete(room);
+                              return next;
+                            });
+                          })
                           .then(changed)
                           .then(leaveRoom)
                           .catch((cause: unknown) =>
@@ -651,6 +713,8 @@ export function MomoTalk({
                 </div>
               ) : panel === "memory" ? (
                 <MemoryPanel
+                  key={room}
+                  roomId={room}
                   student={student}
                   store={chat.store}
                   memories={memories}
@@ -814,9 +878,7 @@ export function MomoTalk({
                     <div ref={messagesEnd} />
                   </div>
                   {messages.length > 0 &&
-                    messages.at(-1)?.id !==
-                      chat.summaries.find((entry) => entry.roomId === room)
-                        ?.last.id && (
+                    messages.at(-1)?.id !== latest?.id && (
                       <button
                         type="button"
                         className={cx(
@@ -850,14 +912,21 @@ export function MomoTalk({
                       }
                       onDismiss={note ? () => setNote(null) : undefined}
                     >
-                      {note?.text ?? `${student.short}의 답장을 받지 못했어요.`}
+                      {note?.text ??
+                        (replacing
+                          ? "이전 질문은 답장 없이 기록에 남겨 두고, 새 질문에 답장해요."
+                          : `${student.short}의 답장을 받지 못했어요.`)}
                     </Notice>
                   )}
                   <form
                     className="mt-3 flex shrink-0 gap-2"
                     onSubmit={(e) => {
                       e.preventDefault();
-                      send(input);
+                      if (!retryTarget || replacing)
+                        void send({
+                          text: input,
+                          replaceId: replacing ? retryTarget?.id : undefined,
+                        });
                     }}
                   >
                     <input
@@ -867,7 +936,15 @@ export function MomoTalk({
                       disabled={!roomAI}
                       maxLength={2000}
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
+                      onChange={(e) => {
+                        const text = e.target.value;
+                        setDrafts((current) => {
+                          const next = new Map(current);
+                          if (text) next.set(room, { text });
+                          else next.delete(room);
+                          return next;
+                        });
+                      }}
                     />
                     {busy === room ? (
                       <button
@@ -885,11 +962,11 @@ export function MomoTalk({
                         disabled={
                           !roomAI ||
                           blocked ||
-                          !!messages.at(-1)?.me ||
+                          (!!retryTarget && !replacing) ||
                           !input.trim()
                         }
                       >
-                        전송
+                        {replacing ? "새 질문 전송" : "전송"}
                       </button>
                     )}
                   </form>
@@ -1180,7 +1257,10 @@ export function MomoTalk({
             store={chat.store}
             students={students}
             busy={!!busy}
-            onChange={changed}
+            onChange={async () => {
+              setDrafts(new Map());
+              await changed();
+            }}
           />
           {settingsFooter}
         </div>

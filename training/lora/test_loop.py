@@ -5,12 +5,13 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from loop import candidate_config, choose_candidate, run_stage
 from report import inspect_run, screen
-from run import read_json, sha256, write_json
+from run import CHECKPOINT_FILES, compare, comparison_prefix, latest_complete_checkpoint, read_json, sha256, write_json
 
 
 class LoopTest(unittest.TestCase):
@@ -62,6 +63,96 @@ class LoopTest(unittest.TestCase):
             {'run': 'clean', 'report': {'lora_flags': 0, 'lora_eval_loss': 1.2}},
         ])
         self.assertEqual(best['run'], 'clean')
+
+
+class CheckpointTest(unittest.TestCase):
+    def test_newest_verified_checkpoint_or_no_resume(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+
+            def save(step):
+                path = directory / f'checkpoint-{step}'
+                path.mkdir()
+                for name in (*CHECKPOINT_FILES, 'scaler.pt'):
+                    (path / name).write_bytes(b'trainer output')
+                write_json(path / 'trainer_state.json', {'global_step': step})
+                write_json(path / 'complete.json', {p.name: sha256(p) for p in path.iterdir()})
+                return path
+
+            old, newest = save(2), save(10)
+            interrupted = directory / 'checkpoint-20'
+            interrupted.mkdir()
+            write_json(interrupted / 'trainer_state.json', {'global_step': 20})
+            self.assertEqual(latest_complete_checkpoint(directory), newest)
+            (newest / 'scaler.pt').unlink()
+            self.assertEqual(latest_complete_checkpoint(directory), old)
+            (old / 'optimizer.pt').write_bytes(b'altered')
+            with self.assertRaisesRegex(ValueError, 'No complete checkpoint'):
+                latest_complete_checkpoint(directory)
+
+
+class ComparisonResumeTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.partial = self.root / 'comparison.jsonl.partial'
+        self.config = {'base_model': 'test', 'revision': 'pinned', 'seed': 42, 'max_new_tokens': 10}
+        self.answer = {'text': '응답', 'tokens': 2, 'hit_token_limit': False, 'seconds': 0.1}
+        self.cases = [{'id': key, 'kind': 'probe', 'messages': [
+            {'role': 'system', 'content': 'card'}, {'role': 'user', 'content': key},
+        ]} for key in ('first', 'second')]
+
+    def row(self, index, identity='run'):
+        case = self.cases[index]
+        return {**case, 'messages': case['messages'][1:], 'run_sha256': identity, 'seed': 42,
+                'device': 'mps', 'base': self.answer, 'lora': self.answer}
+
+    def line(self, row):
+        return (json.dumps(row, ensure_ascii=False) + '\n').encode('utf-8')
+
+    def read_prefix(self, partial=True):
+        return comparison_prefix(self.partial, self.cases, 'run', self.config, partial=partial)
+
+    def test_truncated_multibyte_tail_keeps_first_row_byte_for_byte(self):
+        first = self.line(self.row(0))
+        second = self.line(self.row(1))
+        self.partial.write_bytes(first + second[:second.index('응'.encode()) + 1])
+        self.assertEqual(self.read_prefix(), 1)
+        self.assertEqual(self.partial.read_bytes(), first)
+        with self.partial.open('ab') as handle:
+            handle.write(second)
+        self.assertEqual(self.read_prefix(), 2)
+
+    def test_corrupt_committed_row_or_finalized_file_fails_without_changes(self):
+        first = self.line(self.row(0))
+        for content, partial in [
+                (b'{bad}\n' + b'{"id":', True), (first + b'{bad}\n', True), (first + b'\n', True),
+                (self.line(self.row(1)) + b'{"id":', True), (self.line(self.row(0, 'other')), True),
+                (self.line({**self.row(0), 'lora': {}}), True), (first + b'{"id":', False)]:
+            with self.subTest(content=content, partial=partial):
+                self.partial.write_bytes(content)
+                with self.assertRaises(ValueError):
+                    self.read_prefix(partial)
+                self.assertEqual(self.partial.read_bytes(), content)
+
+    def test_finalize_complete_partial_without_loading_model(self):
+        write_json(self.root / 'card.json', {'system': 'card', 'adapter': self.config})
+        (self.root / 'eval.jsonl').write_bytes(b'')
+        write_json(self.root / 'probes.json', [{'id': c['id'], 'prompt': c['id']} for c in self.cases])
+        write_json(self.root / 'run.json', {'status': 'completed', 'fingerprint': {'config': self.config},
+                   'artifacts': {p.name: sha256(p) for p in self.root.iterdir()}})
+        identity = sha256(self.root / 'run.json')
+        data = b''.join(self.line(self.row(i, identity)) for i in range(2))
+        self.partial.write_bytes(data)
+        args = SimpleNamespace(run=self.root, out=None, resume=True)
+        compare(args)
+        self.assertFalse(self.partial.exists())
+        final = self.root / 'comparison.jsonl'
+        self.assertEqual(final.read_bytes(), data)
+        final.write_bytes(data[:-1])
+        with self.assertRaisesRegex(ValueError, 'incomplete finalized'):
+            compare(args)
 
 
 class ReportTest(unittest.TestCase):

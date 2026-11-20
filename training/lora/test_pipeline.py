@@ -27,6 +27,8 @@ class PipelineTest(unittest.TestCase):
                 self.assertEqual(['user', 'assistant'], [m['role'] for m in sample['messages'][-2:]])
                 for message, ids in zip(sample['messages'], sample['source_message_ids'], strict=True):
                     self.assertEqual(message['content'], clean(' '.join(by_id[i]['MessageKR'] for i in ids)))
+                self.assertEqual(sample['choices'], [i for ids in sample['source_message_ids']
+                                                     for i in ids if by_id[i]['MessageCondition'] == 'Answer'])
             self.assertEqual(samples, extract(character, list(reversed(rows)))[0], '입력 행 순서와 무관하게 같다')
             for sample in samples:
                 # 한 경로에는 선택지가 하나씩만 들어간다: 서로 다른 선택지 문장이 같은 이력에 나열되지 않는다.
@@ -58,6 +60,18 @@ class PipelineTest(unittest.TestCase):
         trimmed = [r for r in deepcopy(rows) if not (r['MessageGroupId'] == 130100020 and r['MessageKR'] == '아아. 당연하지.')]
         reduced, _, _ = extract('Yuuka', trimmed)
         self.assertFalse(any('다행이구요' in s['messages'][-1]['content'] for s in reduced))
+
+    def test_future_branch_does_not_change_prefix_identity(self):
+        rows = deepcopy(self.source['characters']['Yuuka']['rows'])
+
+        def prefix():
+            return next(s for s in extract('Yuuka', rows)[0] if s['source_message_ids'][-1][-1] == 126)
+
+        original = prefix()
+        self.assertEqual(original['choices'], [124])
+        later = next(r for r in rows if r['Id'] == 127)
+        rows.append({**later, 'Id': max(r['Id'] for r in rows) + 1, 'MessageKR': '다른 선택지'})
+        self.assertEqual(prefix(), original)
 
     def test_no_reply_across_favor_event(self):
         samples, _, _ = extract('Aris', self.source['characters']['Aris']['rows'])

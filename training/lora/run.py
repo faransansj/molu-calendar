@@ -27,7 +27,8 @@ def write_json(path, value):
 
 
 def sha256(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    with Path(path).open('rb') as handle:
+        return hashlib.file_digest(handle, 'sha256').hexdigest()
 
 
 def read_jsonl(path):
@@ -162,9 +163,33 @@ def reply_loss_inputs(inputs):
     return {**inputs, 'labels': labels[:, -keep:], 'logits_to_keep': keep}
 
 
+# Files consumed when resuming this single-process PEFT Trainer (not the inference export).
+CHECKPOINT_FILES = ('trainer_state.json', 'adapter_config.json', 'adapter_model.safetensors',
+                    'optimizer.pt', 'scheduler.pt', 'rng_state.pth')
+
+
+def latest_complete_checkpoint(directory):
+    candidates = ((int(step), p) for p in directory.glob('checkpoint-*')
+                  if (step := p.name.removeprefix('checkpoint-')).isascii() and step.isdecimal() and p.is_dir())
+    for step, path in sorted(candidates, reverse=True):
+        try:
+            files = read_json(path / 'complete.json')
+            if (not isinstance(files, dict) or not set(CHECKPOINT_FILES) <= files.keys()
+                    or files.keys() - {*CHECKPOINT_FILES, 'scaler.pt'}):
+                continue
+            state = read_json(path / 'trainer_state.json')
+            if not isinstance(state, dict) or state.get('global_step') != step:
+                continue
+            if all(sha256(path / name) == digest for name, digest in files.items()):
+                return path
+        except (FileNotFoundError, IsADirectoryError, ValueError):
+            continue  # Interrupted save or corrupt file: try the previous epoch.
+    raise ValueError('No complete checkpoint to resume. Preserve this run and start with a new --out.')
+
+
 def trainer_for(model, tokenizer, train, evaluation, config, output, max_steps=-1, use_cpu=False):
     import torch
-    from transformers import Trainer, TrainingArguments, DataCollatorForSeq2Seq
+    from transformers import Trainer, TrainerCallback, TrainingArguments, DataCollatorForSeq2Seq
     if model.config.model_type != 'qwen3':
         raise ValueError('Reply-only logits optimization is validated for Qwen3 only')
 
@@ -172,6 +197,12 @@ def trainer_for(model, tokenizer, train, evaluation, config, output, max_steps=-
         def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
             return super().compute_loss(model, reply_loss_inputs(inputs), return_outputs=return_outputs,
                                         num_items_in_batch=num_items_in_batch)
+
+    class CheckpointCommit(TrainerCallback):
+        def on_save(self, args, state, control, **kwargs):
+            path = Path(args.output_dir) / f'checkpoint-{state.global_step}'
+            files = (*CHECKPOINT_FILES, 'scaler.pt') if args.fp16 else CHECKPOINT_FILES
+            write_json(path / 'complete.json', {name: sha256(path / name) for name in files})
 
     bf16 = not use_cpu and model.dtype == torch.bfloat16
     args = TrainingArguments(
@@ -187,7 +218,7 @@ def trainer_for(model, tokenizer, train, evaluation, config, output, max_steps=-
         label_names=['labels'], disable_tqdm=True,
     )
     return ReplyTrainer(model=model, args=args, train_dataset=train, eval_dataset=evaluation,
-                   processing_class=tokenizer, data_collator=DataCollatorForSeq2Seq(
+                   callbacks=[CheckpointCommit()], processing_class=tokenizer, data_collator=DataCollatorForSeq2Seq(
                        tokenizer, padding=True, label_pad_token_id=-100))
 
 
@@ -206,7 +237,6 @@ def validate(args):
 
 def train(args):
     from transformers import set_seed
-    from transformers.trainer_utils import get_last_checkpoint
     config = read_json(args.config)
     info = gpu_info(args.device)
     card, splits = load_data(args.data, args.character)
@@ -221,9 +251,7 @@ def train(args):
             raise ValueError('Resume refused: config/dataset/environment lock changed')
         if previous['status'] == 'completed':
             raise ValueError('Run already completed; choose a new --out')
-        checkpoint = get_last_checkpoint(str(args.out / 'checkpoints'))
-        if not checkpoint:
-            raise ValueError('No checkpoint to resume. Start with a new --out.')
+        checkpoint = str(latest_complete_checkpoint(args.out / 'checkpoints'))
     elif args.out.exists() and any(args.out.iterdir()):
         raise ValueError('Output is non-empty; use a new --out or --resume. Nothing overwritten.')
     set_seed(config['seed'])
@@ -270,10 +298,44 @@ def train(args):
     print(f'Saved adapter + card: {args.out}. Smoke/pilot only; evaluate voice before use.')
 
 
+def comparison_fields(case, identity, seed):
+    return {**case, 'messages': case['messages'][1:], 'seed': seed, 'run_sha256': identity}
+
+
+def comparison_prefix(path, cases, identity, config, *, partial):
+    """Validate committed rows before truncating any uncommitted tail."""
+    count = 0
+    with path.open('r+b' if partial else 'rb') as handle:
+        while True:
+            start = handle.tell()
+            line = handle.readline()
+            if not line:
+                break
+            if count == len(cases):
+                raise ValueError(f'{path}: unexpected extra comparison data')
+            if not line.endswith(b'\n'):
+                if not partial:
+                    raise ValueError(f'{path}: incomplete finalized comparison row')
+                handle.truncate(start)
+                break
+            row = json.loads(line.decode('utf-8'))
+            expected = comparison_fields(cases[count], identity, config['seed'])
+            if (not isinstance(row, dict) or any(row.get(k) != v for k, v in expected.items())
+                    or not isinstance(row.get('device'), str) or not row['device']):
+                raise ValueError(f'{path}: invalid comparison prefix at row {count + 1}')
+            for label in ('base', 'lora'):
+                answer = row.get(label)
+                if (not isinstance(answer, dict) or not isinstance(answer.get('text'), str)
+                        or type(answer.get('hit_token_limit')) is not bool
+                        or type(answer.get('tokens')) is not int or not 0 < answer['tokens'] <= config['max_new_tokens']
+                        or type(answer.get('seconds')) not in (int, float)
+                        or not math.isfinite(answer['seconds']) or answer['seconds'] < 0):
+                    raise ValueError(f'{path}: invalid {label} answer at row {count + 1}')
+            count += 1
+    return count
+
+
 def compare(args):
-    import torch
-    from peft import PeftModel
-    from transformers import AutoTokenizer, set_seed
     record = read_json(args.run / 'run.json')
     if record['status'] != 'completed':
         raise ValueError('Run has not completed')
@@ -292,31 +354,33 @@ def compare(args):
         {'role': 'system', 'content': card['system']}, {'role': 'user', 'content': p['prompt']}]
     } for p in read_json(args.run / 'probes.json')]
     existing = output if output.exists() else partial
-    completed = read_jsonl(existing) if existing.exists() else []
     if existing.exists() and not args.resume:
         raise ValueError('Comparison exists; pass --resume or choose another --out')
-    if [r['id'] for r in completed] != [c['id'] for c in cases[:len(completed)]] or len(completed) > len(cases):
-        raise ValueError('Invalid comparison prefix; refusing to overwrite')
-    if any(r.get('run_sha256') != identity for r in completed):
-        raise ValueError('Comparison belongs to a different run')
+    count = comparison_prefix(existing, cases, identity, config, partial=existing == partial) if existing.exists() else 0
     if output.exists():
-        if len(completed) != len(cases):
+        if count != len(cases):
             raise ValueError('Incomplete finalized comparison')
         print(f'Comparison already complete: {output}')
         return
+    if partial.exists() and count == len(cases):
+        partial.replace(output)
+        print(f'Finalized complete comparison: {output}')
+        return
+    import torch
+    from peft import PeftModel
+    from transformers import AutoTokenizer, set_seed
     tokenizer = AutoTokenizer.from_pretrained(args.run / 'adapter', trust_remote_code=False)
     model = PeftModel.from_pretrained(load_model(config, record['fingerprint']['qlora'], args.device), args.run / 'adapter')
     model.eval()
     model.config.use_cache = True
     output.parent.mkdir(parents=True, exist_ok=True)
     with partial.open('a' if partial.exists() else 'x', encoding='utf-8') as handle:
-        for case in cases[len(completed):]:
+        for case in cases[count:]:
             ids = tokenizer.apply_chat_template(case['messages'], tokenize=True, add_generation_prompt=True, enable_thinking=False)
             if len(ids) + config['max_new_tokens'] > config['max_length']:
                 raise ValueError(f'{case["id"]}: exceeds comparison context budget')
             inputs = torch.tensor([ids], device=model.device)
-            row = {**case, 'messages': case['messages'][1:], 'seed': config['seed'],
-                   'run_sha256': identity, 'device': str(model.device)}
+            row = {**comparison_fields(case, identity, config['seed']), 'device': str(model.device)}
             for label in ('base', 'lora'):
                 set_seed(config['seed'])
                 started = time.monotonic()

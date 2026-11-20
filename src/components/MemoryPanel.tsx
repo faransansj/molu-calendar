@@ -182,12 +182,14 @@ function MemoryCard({
 }
 
 export function MemoryPanel({
+  roomId,
   student,
   store,
   memories,
   busy,
   onChange,
 }: {
+  roomId: string;
   student: Student;
   store: ChatTranscript | null;
   memories: Memory[];
@@ -219,19 +221,21 @@ export function MemoryPanel({
           {student.short}의 기억
         </h3>
         <p className="mt-1 text-sm/[1.65] text-body">
-          AI 답장을 만들 때 여기 있는 내용만 참고해요. 이 대화에서만 쓰이고,
-          학생의 답장은 직접 기억하기 전까지 남지 않아요.
+          이 방에서 직접 저장한 기억이에요. AI는 답장할 때 사용 중인 기억뿐
+          아니라 최근 대화와 관련 있는 지난 대화 일부도 참고할 수 있어요. 대화
+          내용이 자동으로 기억에 추가되지는 않아요. 대화에서 저장한 기억을
+          끄거나 만료시키면 원본 메시지도 최근 대화와 발췌에서 제외돼요.
         </p>
       </div>
       <form
         className="flex gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!store || !text.trim()) return;
+          if (!store || disabled || !text.trim()) return;
           const draft = text.trim();
           run(async () => {
-            await store.saveMemory({ roomId: student.id, text: draft });
-            setText("");
+            await store.saveMemory({ roomId, text: draft });
+            setText((current) => (current === text ? "" : current));
           });
         }}
       >

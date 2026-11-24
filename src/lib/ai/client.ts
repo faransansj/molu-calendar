@@ -162,6 +162,16 @@ export async function inspectEnvironment(
   return result;
 }
 
+const OPERATION_TIMEOUT_MS = 60_000;
+const MODEL_PREPARATION_TIMEOUT_MS = 600_000;
+const REQUEST_TIMEOUT_MS: Record<WorkerAction, number> = {
+  cache: OPERATION_TIMEOUT_MS,
+  load: MODEL_PREPARATION_TIMEOUT_MS,
+  // A delete can queue behind the full cross-tab preparation deadline.
+  delete: MODEL_PREPARATION_TIMEOUT_MS + OPERATION_TIMEOUT_MS,
+  generate: OPERATION_TIMEOUT_MS,
+};
+
 // A single worker owns a single model. Termination also cancels stalled GPU/download work.
 export class LocalAIClient implements AIClient {
   workerFactory: () => Worker;
@@ -174,7 +184,7 @@ export class LocalAIClient implements AIClient {
     workerFactory = () =>
       new Worker(
         new URL(
-          `${(import.meta.env?.BASE_URL ?? "/").replace(/\/?$/, "/")}local-ai-worker.bundle.js`,
+          `${(import.meta.env?.BASE_URL ?? "/").replace(/\/?$/, "/")}local-ai-worker.bundle.js?protocol=2`,
           globalThis.location.href,
         ),
       ),
@@ -201,7 +211,7 @@ export class LocalAIClient implements AIClient {
     {
       onEvent = () => {},
       firstMs = 0,
-      timeoutMs = 60000,
+      timeoutMs = REQUEST_TIMEOUT_MS[action],
       timeoutCode = "operation_timeout",
     }: RequestOptions = {},
   ): Promise<WorkerResults[K]> {

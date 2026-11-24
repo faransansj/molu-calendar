@@ -40,6 +40,18 @@ class ProbeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'legacy'):
             memory_probe.score({'expect': {'includes': ['커피']}}, '커피는 아니에요.')
 
+    def test_seat_negation_after_slot_noun(self):
+        row = {'expect': {'unit': '번', 'value': 17, 'available': True}}
+        for text, expected in [
+            ('17번 좌석이 아니에요.', 'contradicted'),
+            ('17번 자리가 아니라 18번이에요.', 'contradicted'),
+            ('18번 좌석이 아니라 17번이에요.', 'correct'),
+            ('17번 좌석이에요.', 'correct'),
+            ('17번 좌석은 좋은 자리가 아니에요.', 'correct'),
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(memory_probe.score(row, text)['outcome'], expected)
+
     def test_compare_requires_bijective_question_sample_seed_match(self):
         row = {'id': 'a', 'characterId': 'Arona', 'questionId': 'coffee', 'sample': 0,
                'seed': 42, 'question': '내 하루 커피는 몇 잔이었지?', 'register': '존댓말'}

@@ -53,7 +53,7 @@ export function useLocalAI() {
         mode === "download" ? "settings" : "momotalk",
         async (client) => {
           progress = 0;
-          cacheWriteFailed = false;
+          if (mode === "download") cacheWriteFailed = false;
           localAISession.notify();
           try {
             // The Worker checks its own adapter. Session cancellation also stops
@@ -62,7 +62,6 @@ export function useLocalAI() {
               "load",
               { modelId: localAISession.modelId, mode },
               {
-                timeoutMs: 600000,
                 onEvent: (event) => {
                   if (Number.isFinite(event.progress))
                     progress = Math.max(progress ?? 0, event.progress!);

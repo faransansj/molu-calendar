@@ -121,17 +121,33 @@ const memorySchema = z.discriminatedUnion("kind", [
     kind: z.literal("edited-note"),
   }),
 ]);
-function withinTotal(items: { text: string }[], max: number) {
-  return items.reduce((sum, item) => sum + item.text.length, 0) <= max;
+// Older tabs send references without provenance. Do not promote them to user facts.
+const legacyReferenceSchema = z
+  .strictObject(referenceFields)
+  .transform((ref) => ({ ...ref, kind: "unattributed" as const }));
+type PromptReference = Reference | z.output<typeof legacyReferenceSchema>;
+
+function referenceList<T extends z.ZodType<{ text: string }>>(
+  item: T,
+  { items, chars }: { items: number; chars: number },
+) {
+  return z
+    .array(item)
+    .max(items)
+    .refine(
+      (rows) => rows.reduce((sum, row) => sum + row.text.length, 0) <= chars,
+    );
 }
-export const memoriesSchema = z
-  .array(memorySchema)
-  .max(MEMORY_LIMITS.items)
-  .refine((items) => withinTotal(items, MEMORY_LIMITS.chars));
-export const excerptsSchema = z
-  .array(quoteSchema)
-  .max(EXCERPT_LIMITS.items)
-  .refine((items) => withinTotal(items, EXCERPT_LIMITS.chars));
+export const memoriesSchema = referenceList(memorySchema, MEMORY_LIMITS);
+export const excerptsSchema = referenceList(quoteSchema, EXCERPT_LIMITS);
+export const legacyMemoriesSchema = referenceList(
+  z.union([memorySchema, legacyReferenceSchema]),
+  MEMORY_LIMITS,
+);
+export const legacyExcerptsSchema = referenceList(
+  z.union([quoteSchema, legacyReferenceSchema]),
+  EXCERPT_LIMITS,
+);
 
 // Both source text and imported speaker IDs are data, including literal Gemma control tokens.
 function quoted(value: string) {
@@ -139,16 +155,20 @@ function quoted(value: string) {
     .replaceAll("<", "\\u003c")
     .replaceAll(">", "\\u003e");
 }
-function referenceLine(ref: Reference) {
+function referenceLine(ref: PromptReference) {
   const text = quoted(ref.text);
   if (ref.kind === "user-confirmed") return `사용자 확인 기억: ${text}`;
+  if (ref.kind === "unattributed") return `출처 미확인 인용: ${text}`;
   const source = `${ref.speakerType}/${ref.sourceKind}, ${quoted(ref.speakerId)}`;
   return ref.kind === "quote"
     ? `과거 발언 (${source}): ${text}`
     : `사용자가 편집한 메모 (원문 화자/출처: ${source}): ${text}`;
 }
 
-export function referencePrefix(memories: Reference[], excerpts: Reference[]) {
+export function referencePrefix(
+  memories: PromptReference[],
+  excerpts: PromptReference[],
+) {
   if (!memories.length && !excerpts.length) return "";
   return [
     "[참고 자료]",
@@ -161,7 +181,10 @@ export function referencePrefix(memories: Reference[], excerpts: Reference[]) {
   ].join("\n");
 }
 
-export function referenceChars(memories: Reference[], excerpts: Reference[]) {
+export function referenceChars(
+  memories: PromptReference[],
+  excerpts: PromptReference[],
+) {
   return referencePrefix(memories, excerpts).length;
 }
 
@@ -169,8 +192,8 @@ export function referenceChars(memories: Reference[], excerpts: Reference[]) {
 export function chatMessagesWithReferences(
   id: string,
   history: ConversationMessage[],
-  memories: Reference[],
-  excerpts: Reference[],
+  memories: PromptReference[],
+  excerpts: PromptReference[],
 ): PromptMessage[] | null {
   const base = chatMessagesFor(id, history);
   if (!base) return null;

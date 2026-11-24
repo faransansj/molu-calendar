@@ -23,6 +23,10 @@ pnpm preview          # http://127.0.0.1:8787
 pnpm scrape           # Refresh schedules; scrape:backfill includes older notices
 ```
 
+The Vite config leaves Astro's dev toolbar entry out of dependency
+pre-bundling so its virtual module is resolved by Astro's normal plugin
+pipeline. Other dependencies are still optimized.
+
 ## Deployment
 
 The browser loads the current official feed and immutable published administrator

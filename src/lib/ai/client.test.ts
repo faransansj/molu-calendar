@@ -101,6 +101,24 @@ describe("local AI model readiness", () => {
       expect(client.loaded).toBe("loaded-model");
     },
   );
+
+  it("keeps deletion alive when another tab takes the full preparation window", async () => {
+    const { client, workers } = setup();
+    const deletion = client.request("delete", { modelId: "loaded-model" });
+    const completed = expect(deletion).resolves.toEqual({
+      counts: {},
+      bytes: {},
+    });
+    const worker = workers[0]!;
+    const request = worker.postMessage.mock.lastCall![0] as WorkerRequest;
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(worker.terminate).not.toHaveBeenCalled();
+    worker.onmessage!({
+      data: { id: request.id, done: true, result: { counts: {}, bytes: {} } },
+    } as MessageEvent);
+    await completed;
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 describe("local AI generation deadlines", () => {

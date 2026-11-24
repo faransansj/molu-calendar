@@ -4,7 +4,12 @@ import type {
   QuoteReference,
   Reference,
 } from "../chat/types.ts";
-import { memoriesSchema, excerptsSchema } from "./persona.ts";
+import {
+  memoriesSchema,
+  excerptsSchema,
+  legacyMemoriesSchema,
+  legacyExcerptsSchema,
+} from "./persona.ts";
 import {
   MOMO_HISTORY_TURNS,
   MOMO_MESSAGE_MAX,
@@ -43,9 +48,6 @@ export interface WorkerResults {
   generate: GenerationResult;
 }
 export type WorkerAction = keyof WorkerPayloads;
-export type WorkerRequest = {
-  [K in WorkerAction]: { id: number; action: K } & WorkerPayloads[K];
-}[WorkerAction];
 const conversationSchema = z.strictObject({
   role: z.enum(["user", "assistant"]),
   content: z
@@ -55,41 +57,58 @@ const conversationSchema = z.strictObject({
     .refine((text) => !!text.trim()),
 });
 const requestId = z.number().int().positive();
-const requestSchema = z.discriminatedUnion("action", [
+const sharedRequests = [
   z.object({ id: requestId, action: z.literal("cache") }),
   z.object({
     id: requestId,
     action: z.literal("delete"),
     modelId: z.string(),
   }),
-  z.object({
-    id: requestId,
-    action: z.literal("load"),
-    modelId: z.string(),
-    mode: z.enum(["cache-only", "download"]),
-  }),
-  z.object({
-    id: requestId,
-    action: z.literal("generate"),
-    messages: z
-      .array(conversationSchema)
-      .min(1)
-      .max(2 * MOMO_HISTORY_TURNS + 1)
-      .refine(
-        (messages) =>
-          messages.length % 2 === 1 &&
-          messages.every(
-            ({ role }, i) => role === (i % 2 === 0 ? "user" : "assistant"),
-          ),
-      ),
-    maxTokens: z.number().int().min(1).max(OUTPUT_RESERVE),
-    characterId: z.string().optional(),
-    memories: memoriesSchema.optional(),
-    excerpts: excerptsSchema.optional(),
+] as const;
+const loadRequest = z.object({
+  id: requestId,
+  action: z.literal("load"),
+  modelId: z.string(),
+  mode: z.enum(["cache-only", "download"]),
+});
+const generateRequest = z.object({
+  id: requestId,
+  action: z.literal("generate"),
+  messages: z
+    .array(conversationSchema)
+    .min(1)
+    .max(2 * MOMO_HISTORY_TURNS + 1)
+    .refine(
+      (messages) =>
+        messages.length % 2 === 1 &&
+        messages.every(
+          ({ role }, i) => role === (i % 2 === 0 ? "user" : "assistant"),
+        ),
+    ),
+  maxTokens: z.number().int().min(1).max(OUTPUT_RESERVE),
+  characterId: z.string().optional(),
+  memories: memoriesSchema.optional(),
+  excerpts: excerptsSchema.optional(),
+});
+const requestSchema = z.discriminatedUnion("action", [
+  ...sharedRequests,
+  loadRequest,
+  generateRequest,
+]);
+const unversionedRequestSchema = z.discriminatedUnion("action", [
+  ...sharedRequests,
+  loadRequest.extend({ mode: loadRequest.shape.mode.default("download") }),
+  generateRequest.extend({
+    memories: legacyMemoriesSchema.optional(),
+    excerpts: legacyExcerptsSchema.optional(),
   }),
 ]);
-export function parseWorkerRequest(value: unknown): WorkerRequest {
-  return requestSchema.parse(value);
+export type WorkerRequest = z.output<typeof unversionedRequestSchema>;
+export function parseWorkerRequest(
+  value: unknown,
+  unversioned = false,
+): WorkerRequest {
+  return (unversioned ? unversionedRequestSchema : requestSchema).parse(value);
 }
 const eventSchema = z.object({
   id: requestId,

@@ -221,6 +221,7 @@ uv run --locked python memory_probe.py --prompts runs/memory-v2/prompts.jsonl --
 - 변형: `memory`(기억 포함) · `no-memory`(기억 없음) · `expired`(만료) · `disabled`(사용 중지) · `cross-room`(다른 방의 기억).
 - `expired`/`disabled`에서도 원문은 검색 가능한 과거 메시지로 남긴다. 해당 값이 기억·원문 발췌·최근 이력 어디로도 최종 프롬프트에 들어가지 않아야 한다. `memory`에서는 해당 출처가 있는 값을 확인한다.
 - 질문에는 주제와 단위만 있고 답 수치는 없다. `responses.jsonl`과 `summary.md`는 근거가 있는 값 일치(`correct`), 근거를 부정하거나 다른 값 단정(`contradicted`), 근거 없이 값을 단정(`unsupported-value`), 그 외(`unknown`)를 나눈다. 우연히 맞힌 추측도 근거 없는 단정이다. `unknown`에는 명시적 모름 외에 형식을 벗어나 해석하지 못한 답도 있으므로 정직한 거절률로 읽지 않는다. 숫자·단위 규칙의 오판은 원문으로 확인한다.
+- 좌석 번호 뒤에 명사가 붙어도 명시적 부정을 구분한다. 근거가 17번이면 `17번 좌석이 아니에요`는 `contradicted`다. 기존 저장 응답은 `--rejudge`로 갱신할 수 있다.
 - `--rejudge`는 같은 생성 프롬프트와 저장된 답변으로 판정만 갱신한다. 모델·revision·어댑터·장치·토큰 한도·샘플링 설정과 실제 seed는 응답 행에서 보존한다. 과거 키워드 문항을 새 지표로 바꾸려면 **새 프롬프트로 다시 생성**해야 한다. [과거 집계](RESULTS.md)는 새 회상률이나 앱 품질의 증거가 아니다.
 
 ## 5.6 말투 프로브 (고정 평가셋, 모델 학습과 별개)

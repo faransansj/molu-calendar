@@ -30,7 +30,7 @@ const fixture = vi.hoisted(() => {
   }));
   vi.stubGlobal("self", port);
   vi.stubGlobal("fetch", fetch);
-  vi.stubGlobal("caches", { match });
+  vi.stubGlobal("caches", { match, open: async () => ({ match }) });
   return { port, match, fetch, inspect, send, conversation };
 });
 vi.mock("../lib/ai/client.ts", () => ({ inspectEnvironment: fixture.inspect }));
@@ -65,6 +65,43 @@ it("reports a current cache miss before any GPU preflight or model fetch", async
   });
   expect(fixture.fetch).not.toHaveBeenCalled();
   expect(fixture.inspect).not.toHaveBeenCalled();
+});
+
+it("serves a pre-deploy tab's load and generation without attributing its references", async () => {
+  fixture.match.mockResolvedValueOnce(
+    new Response(new Uint8Array([0]), {
+      headers: { "Content-Length": String(model.bytes) },
+    }),
+  );
+  await fixture.port.onmessage!({
+    data: { id: 1, action: "load", modelId: model.id },
+  });
+  expect(fixture.port.postMessage).toHaveBeenLastCalledWith({
+    id: 1,
+    done: true,
+    result: { loadMs: expect.any(Number) },
+  });
+
+  await fixture.port.onmessage!({
+    data: {
+      id: 2,
+      action: "generate",
+      characterId: "Arona",
+      messages: [{ role: "user", content: "기억나?" }],
+      memories: [{ id: "memory", text: "금요일 독서 모임" }],
+      excerpts: [{ id: "excerpt", text: "열람실 17번 좌석" }],
+      maxTokens: 256,
+    },
+  });
+  const [{ content }] = fixture.send.mock.calls[0]!;
+  expect(content).toContain('출처 미확인 인용: "금요일 독서 모임"');
+  expect(content).toContain('출처 미확인 인용: "열람실 17번 좌석"');
+  expect(content).not.toContain("사용자 확인 기억");
+  expect(fixture.port.postMessage).toHaveBeenLastCalledWith({
+    id: 2,
+    done: true,
+    result: expect.objectContaining({ text: "답변" }),
+  });
 });
 
 it("passes quoted references in the actual final user message and rejects over-budget input before LiteRT", async () => {

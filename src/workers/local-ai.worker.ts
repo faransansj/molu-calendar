@@ -35,6 +35,8 @@ declare const self: DedicatedWorkerGlobalScope & {
   Module?: { locateFile(name: string): string };
 };
 
+const unversioned = !new URL(self.location.href).searchParams.has("protocol");
+
 let engine: LiteRTEngine | null = null;
 let loaded: string | null = null;
 let liteRuntime:
@@ -49,7 +51,7 @@ async function unload() {
 self.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
   let data: WorkerRequest;
   try {
-    data = parseWorkerRequest(raw);
+    data = parseWorkerRequest(raw, unversioned);
   } catch (error) {
     const id = raw && typeof raw === "object" && "id" in raw ? raw.id : null;
     self.postMessage({

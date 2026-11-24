@@ -61,6 +61,11 @@ disabled. Keep their stored messages and memories intact.
 The classic Worker uses the pinned LiteRT-LM 0.17.1 runtime and Gemma 4 E2B
 artifact. LiteRT's `maxNumTokens` is 4,096. Retain `importScripts`, pinned assets
 and restricted CSP download hosts.
+The current client uses `local-ai-worker.bundle.js?protocol=2` and must send an
+explicit load mode and attributed reference DTOs. The queryless URL still serves
+tabs opened before deployment: a missing load mode keeps the old preparation
+behavior, and references with no provenance are quoted as unattributed, never
+as user-confirmed facts. Prompt budgets apply on both URLs.
 
 - Conversation messages use user/assistant roles only, with at most four completed
   exchanges plus the current question. Each message is limited to 2,000 characters.
@@ -105,13 +110,16 @@ and restricted CSP download hosts.
   cancellation from a failed put must not become a download failure.
 - Download and deletion serialize on the same model lock across tabs. Failed
   downloads cancel their own reader, not another writer's committed model.
+  A delete request has a 660-second total deadline to allow for the 600-second
+  preparation window of a download ahead of it.
   Explicit deletion removes current and previous revisions of that model only.
   Successful deletion also clears that model's in-memory readiness; settings must
   not report ready after its cache is gone. Neither path deletes conversations or
   memories.
 - Settings expose explicit model deletion after `storage_low` or
-  `cache_write_failed`, even when no valid model is cached. Starting preparation
-  or successfully deleting the model clears this recovery state.
+  `cache_write_failed`, even when no valid model is cached. A cache-only miss
+  leaves this recovery state unchanged. Starting explicit preparation or
+  successfully deleting the model clears it.
 - MomoTalk allows 60 seconds from the first Worker `started` event to the first
   non-whitespace token and 180 seconds from the generate request to completion.
   Repeated `started` events cannot extend or restart the first-token deadline;
@@ -127,8 +135,8 @@ Use the actual React app for storage, backup/import, paging, memory editing,
 cancellation/retry and stale-response checks. Report real GPU measurements
 separately from static checks.
 
-Run the cache-stream and client-deadline regressions with
-`pnpm exec vitest run src/lib/ai/client.test.ts src/lib/ai/model-cache.test.ts`.
+Run the cache-stream, client-deadline and Worker protocol regressions with
+`pnpm exec vitest run src/lib/ai/client.test.ts src/lib/ai/model-cache.test.ts src/workers/local-ai.worker.test.ts`.
 Web Streams/Response fixtures and controlled Worker replies verify boundaries,
 not real model/GPU execution.
 

@@ -31,6 +31,7 @@ NUMERAL = '|'.join(sorted(NUMBER_WORDS, key=len, reverse=True))
 UNSURE = re.compile(r'모르|모름|몰라|몰랐|모릅|기억(?:이|은|나지)?\s*(?:안|없|않)|확실하지|확신할 수 없|알 수 없|글쎄|아마|어쩌면|혹시|일까|인지|일지도|같아|같아요')
 QUESTION = re.compile(r'[?？]|(?:까|나요|가요|는지|면 좋겠|으면 좋겠)')
 NEGATED = re.compile(r'^(?:[은는이가을를도]\s*)?(?:아니|아닌|아닙|아냐|아님|말고|안\s|못\s)|^[^.!?…,\d]{0,12}지\s*않')
+SEAT_LABEL = re.compile(r'^(?:좌석|자리)(?=[은는이가을를도\s]|$)\s*')
 
 
 def score(row, text):
@@ -56,6 +57,9 @@ def score(row, text):
         # 이번 ('this time') is not a claim that the seat number was 2.
         if match.group() == '이번' or UNSURE.search(prefix) or UNSURE.search(suffix) or QUESTION.search(suffix):
             continue
+        # The counter can be followed by the slot noun and its particle.
+        if expect['unit'] == '번':
+            suffix = SEAT_LABEL.sub('', suffix, count=1)
         (denied if NEGATED.search(suffix) else asserted).add(value)
     expected = expect['value']
     if not asserted and not denied:
